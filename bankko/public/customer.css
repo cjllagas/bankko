@@ -1,0 +1,20 @@
+/* Customer page additions. Loaded after bankko.css, same design tokens. */
+.amt-in{color:var(--ok);font-weight:700}
+.amt-out{color:var(--red-d);font-weight:700}
+.amt-neutral{font-weight:700}
+.acct .top2{display:flex;justify-content:space-between;align-items:center}
+.acct .tag{background:rgba(255,255,255,.9)}
+.acct.frozen{opacity:.8}
+.lookup{display:flex;gap:8px;align-items:flex-start}
+.lookup input{flex:1}
+.lookup .btn{width:auto;margin-top:0;white-space:nowrap}
+.found{background:#e4f4ea;border:1px solid #b9dfc6;color:var(--ok);padding:9px 12px;border-radius:var(--r);font-size:13px;margin-top:8px}
+.panel .links a{cursor:pointer}
+.panel.wide{max-width:520px}
+.main .box h3 .btn{margin-left:8px}
+.stack>*+*{margin-top:0}
+@media print{
+  body>*:not(dialog){display:none!important}
+  dialog{border:0;box-shadow:none;width:100%}
+  dialog .actions{display:none}
+}
