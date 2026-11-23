@@ -153,68 +153,28 @@
       clear(panel);
       const email = h('input', { type: 'email', autocomplete: 'username', maxlength: 100, placeholder: 'admin@bankko.example', required: true });
       const pass = h('input', { type: 'password', autocomplete: 'current-password', maxlength: 200, required: true });
-      const btn = h('button', { type: 'submit', class: 'btn' }, 'Continue');
+      const btn = h('button', { type: 'submit', class: 'btn' }, 'Log in');
       panel.append(
         h('h2', null, 'Administrator log in'),
-        h('p', { class: 'sub' }, 'Step 1 of 2: enter your staff email and password.'),
+        h('p', { class: 'sub' }, 'Enter your staff email and password.'),
         h('form', {
           onsubmit: async (e) => {
             e.preventDefault(); show(err, false); btn.disabled = true;
             try {
               const r = await api('POST', '/auth/sessions', { body: { email: email.value.trim(), password: pass.value }, token: null });
-              step2(r);
+              if (r.role !== 'Admin') {                       // a Customer token must not stay in this console
+                await api('DELETE', '/auth/sessions/current', { token: r.accessToken }).catch(() => {});
+                showErr('This console is for administrators only.'); btn.disabled = false; return;
+              }
+              state.token = r.accessToken; state.name = r.name || 'Administrator';
+              store.set('bk_token', state.token); store.set('bk_name', state.name);
+              start();
             } catch (ex) { showErr(ex.detail); btn.disabled = false; }
           },
         }, h('label', null, 'Email address'), email, h('label', null, 'Password'), pass, note, err, btn));
       email.focus();
     }
 
-    function step2(r) {
-      clear(panel);
-      const boxes = Array.from({ length: 6 }, (_, i) => h('input', {
-        maxlength: 1, inputmode: 'numeric', pattern: '[0-9]', 'aria-label': `Digit ${i + 1}`,
-        autocomplete: i === 0 ? 'one-time-code' : 'off',
-      }));
-      boxes.forEach((b, i) => {
-        b.addEventListener('input', () => { b.value = b.value.replace(/\D/g, ''); if (b.value && boxes[i + 1]) boxes[i + 1].focus(); });
-        b.addEventListener('keydown', (e) => { if (e.key === 'Backspace' && !b.value && boxes[i - 1]) boxes[i - 1].focus(); });
-        b.addEventListener('paste', (e) => {
-          e.preventDefault();
-          const digits = (e.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0, 6);
-          digits.split('').forEach((d, j) => { boxes[j].value = d; });
-          (boxes[Math.min(digits.length, 5)]).focus();
-        });
-      });
-      const btn = h('button', { type: 'submit', class: 'btn' }, 'Verify and log in');
-      panel.append(
-        h('h2', null, 'Administrator log in'),
-        h('p', { class: 'sub' }, `Step 2 of 2: enter the 6-digit code sent to ${r.maskedPhone || 'your phone'}.`),
-        h('form', {
-          onsubmit: async (e) => {
-            e.preventDefault(); show(err, false);
-            const otp = boxes.map((b) => b.value).join('');
-            if (otp.length !== 6) return showErr('Enter all 6 digits.');
-            btn.disabled = true;
-            try {
-              const t = await api('POST', '/auth/otp-verifications', { body: { otpChallengeId: r.otpChallengeId, otp }, token: null });
-              if (t.role !== 'Admin') {                       // a Customer token must not stay in this console
-                await api('DELETE', '/auth/sessions/current', { token: t.accessToken }).catch(() => {});
-                showErr('This console is for administrators only.');
-                btn.disabled = false; return;
-              }
-              state.token = t.accessToken; state.name = t.name || 'Administrator';
-              store.set('bk_token', state.token); store.set('bk_name', state.name);
-              start();
-            } catch (ex) { showErr(ex.detail); btn.disabled = false; }
-          },
-        },
-        h('div', { class: 'otp' }, boxes),
-        h('p', { class: 'hint' }, `The code expires in ${Math.round(r.otpExpiresInSeconds / 60)} minutes.`),
-        r.devOtp ? h('div', { class: 'dev' }, `Development mode (no SMS gateway): your code is ${r.devOtp}`) : null,
-        err, btn),
-        h('div', { class: 'links' }, h('a', { href: '#', onclick: (e) => { e.preventDefault(); step1(); } }, 'Start over')));
-      boxes[0].focus();
-    }
     step1();
   }
 

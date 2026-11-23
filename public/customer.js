@@ -176,59 +176,20 @@
       const showErr = (m) => { err.textContent = m; show(err, true); show(note, false); };
       const email = h('input', { type: 'email', autocomplete: 'username', maxlength: 100, placeholder: 'you@email.com', required: true });
       const pass = h('input', { type: 'password', autocomplete: 'current-password', maxlength: 200, required: true });
-      const btn = h('button', { type: 'submit', class: 'btn' }, 'Continue');
+      const btn = h('button', { type: 'submit', class: 'btn' }, 'Log in');
       panel.append(
         h('h2', null, 'Log in to Bankko'),
-        h('p', { class: 'sub' }, 'Step 1 of 2: enter your email and password.'),
+        h('p', { class: 'sub' }, 'Enter your email and password.'),
         h('form', {
           onsubmit: async (e) => {
             e.preventDefault(); show(err, false); btn.disabled = true;
             try {
               const r = await api('POST', '/auth/sessions', { body: { email: email.value.trim(), password: pass.value }, token: null });
-              step2(r);
-            } catch (ex) { showErr(ex.detail); btn.disabled = false; }
-          },
-        }, h('label', null, 'Email address'), email, h('label', null, 'Password'), pass, note, err, btn),
-        h('div', { class: 'links' }, h('span', null, 'New to Bankko?'), h('a', { onclick: () => register() }, 'Create an account')));
-      email.focus();
-    }
-
-    function step2(r) {
-      clear(panel);
-      const err = h('div', { class: 'err hidden' });
-      const showErr = (m) => { err.textContent = m; show(err, true); };
-      const boxes = Array.from({ length: 6 }, (_, i) => h('input', {
-        maxlength: 1, inputmode: 'numeric', pattern: '[0-9]', 'aria-label': `Digit ${i + 1}`,
-        autocomplete: i === 0 ? 'one-time-code' : 'off',
-      }));
-      boxes.forEach((b, i) => {
-        b.addEventListener('input', () => { b.value = b.value.replace(/\D/g, ''); if (b.value && boxes[i + 1]) boxes[i + 1].focus(); });
-        b.addEventListener('keydown', (e) => { if (e.key === 'Backspace' && !b.value && boxes[i - 1]) boxes[i - 1].focus(); });
-        b.addEventListener('paste', (e) => {
-          e.preventDefault();
-          const digits = (e.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0, 6);
-          digits.split('').forEach((d, j) => { boxes[j].value = d; });
-          boxes[Math.min(digits.length, 5)].focus();
-        });
-      });
-      const btn = h('button', { type: 'submit', class: 'btn' }, 'Verify and log in');
-      panel.append(
-        h('h2', null, 'Log in to Bankko'),
-        h('p', { class: 'sub' }, `Step 2 of 2: enter the 6-digit code sent to ${r.maskedPhone || 'your phone'}.`),
-        h('form', {
-          onsubmit: async (e) => {
-            e.preventDefault(); show(err, false);
-            const otp = boxes.map((b) => b.value).join('');
-            if (otp.length !== 6) return showErr('Enter all 6 digits.');
-            btn.disabled = true;
-            try {
-              const t = await api('POST', '/auth/otp-verifications', { body: { otpChallengeId: r.otpChallengeId, otp }, token: null });
-              if (t.role !== 'Customer') {                    // an Admin token must not stay on the customer page
-                await api('DELETE', '/auth/sessions/current', { token: t.accessToken }).catch(() => {});
-                showErr('Administrators log in at /admin.');
-                btn.disabled = false; return;
+              if (r.role !== 'Customer') {                    // an Admin token must not stay on the customer page
+                await api('DELETE', '/auth/sessions/current', { token: r.accessToken }).catch(() => {});
+                showErr('Administrators log in at /admin.'); btn.disabled = false; return;
               }
-              state.token = t.accessToken; state.userId = t.userId; state.name = t.name || 'Customer';
+              state.token = r.accessToken; state.userId = r.userId; state.name = r.name || 'Customer';
               store.set('bkc_token', state.token); store.set('bkc_uid', String(state.userId));
               try {
                 const u = await api('GET', `/users/${state.userId}`);
@@ -238,13 +199,9 @@
               start();
             } catch (ex) { showErr(ex.detail); btn.disabled = false; }
           },
-        },
-        h('div', { class: 'otp' }, boxes),
-        h('p', { class: 'hint' }, `The code expires in ${Math.round((r.otpExpiresInSeconds || 300) / 60)} minutes.`),
-        r.devOtp ? h('div', { class: 'dev' }, `Development mode (no SMS gateway): your code is ${r.devOtp}`) : null,
-        err, btn),
-        h('div', { class: 'links' }, h('a', { onclick: () => step1() }, 'Start over')));
-      boxes[0].focus();
+        }, h('label', null, 'Email address'), email, h('label', null, 'Password'), pass, note, err, btn),
+        h('div', { class: 'links' }, h('span', null, 'New to Bankko?'), h('a', { onclick: () => register() }, 'Create an account')));
+      email.focus();
     }
 
     function register() {
@@ -393,48 +350,10 @@
     }).catch((ex) => body.replaceWith(errBox(ex)));
   }
 
-  /* ---------- money movement: #21 with Idempotency-Key and step-up (#30) ---------- */
-  // Asks for the step-up OTP and resolves with the single-use step-up token.
-  function askStepUp(data) {
-    return new Promise((resolve, reject) => {
-      const stepUpId = data && (data.stepUpId || (data.data && data.data.stepUpId));
-      const err = h('div', { class: 'err hidden' });
-      const otp = h('input', { type: 'text', inputmode: 'numeric', maxlength: 6, autocomplete: 'one-time-code', placeholder: '6-digit code' });
-      const btn = h('button', { type: 'submit', class: 'btn' }, 'Verify');
-      let done = false;
-      const dlg = openDialog('Extra verification needed',
-        'Large transfers need a new one-time code. We sent it to your registered phone number.',
-        h('form', {
-          onsubmit: async (e) => {
-            e.preventDefault(); show(err, false);
-            if (!stepUpId) { err.textContent = 'The server did not return a step-up ID. Please try again.'; show(err, true); return; }
-            if (!/^\d{6}$/.test(otp.value.trim())) { err.textContent = 'Enter the 6-digit code.'; show(err, true); return; }
-            btn.disabled = true;
-            try {
-              const r = await api('POST', '/auth/step-ups', { body: { stepUpId, otp: otp.value.trim() } });
-              done = true; dlg.close(); resolve(r.stepUpToken);
-            } catch (ex) { err.textContent = ex.detail; show(err, true); btn.disabled = false; }
-          },
-        }, h('label', null, 'One-time code'), otp,
-        data && data.devOtp ? h('div', { class: 'dev' }, `Development mode: your code is ${data.devOtp}`) : null, err,
-        h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn alt', onclick: () => dlg.close() }, 'Cancel'), btn)));
-      dlg.addEventListener('close', () => { if (!done) reject(Object.assign(new Error('Cancelled.'), { cancelled: true })); });
-      otp.focus();
-    });
-  }
-
-  // One intended payment = one Idempotency-Key. A retry after step-up reuses the same key.
+  /* ---------- money movement: #21 with Idempotency-Key (#21) ---------- */
+  // One intended payment = one Idempotency-Key, so a retry can never charge twice.
   async function sendPayment(body) {
-    const key = uuid(); let stepToken = null;
-    for (;;) {
-      const headers = { 'Idempotency-Key': key };
-      if (stepToken) headers['X-Step-Up-Token'] = stepToken;
-      try { return await api('POST', '/transactions', { body, headers }); }
-      catch (ex) {
-        if (ex.status === 403 && !stepToken && /step-up/i.test(ex.data && ex.data.message || '')) { stepToken = await askStepUp(ex.data); continue; }
-        throw ex;
-      }
-    }
+    return api('POST', '/transactions', { body, headers: { 'Idempotency-Key': uuid() } });
   }
 
   const noAccounts = () => h('div', { class: 'box' }, h('p', { class: 'empty' }, 'You have no accounts yet. Open one from My accounts.'));
