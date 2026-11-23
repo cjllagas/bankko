@@ -1,0 +1,14 @@
+# dependencies and build output
+node_modules
+dist
+
+# secrets - never commit these
+.env
+.env.*
+!.env.example
+
+# logs, OS and editor files
+*.log
+.DS_Store
+.vscode
+.idea
