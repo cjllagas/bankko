@@ -4,7 +4,7 @@ import { User } from './user.entity';
 import { Payee } from './payee.entity';
 import { Transaction } from './transaction.entity';
 
-@Entity('Account')
+@Entity('account')
 export class Account {
   @PrimaryGeneratedColumn({ name: 'Account_ID' }) accountId: number;
   @Column({ name: 'User_ID' }) userId: number;

@@ -45,7 +45,7 @@ export class AuthService {
   private async registerFailure(role: Role, id: number) {
     const { maxFailed, minutes } = config.lockout;
     const lockUntil = new Date(Date.now() + minutes * 60 * 1000);
-    const table = role === 'Admin' ? 'Admin' : '`User`';
+    const table = role === 'Admin' ? 'admin' : '`user`';
     const idCol = role === 'Admin' ? 'Admin_ID' : 'User_ID';
     await this.users.query(
       `UPDATE ${table} SET Locked_Until = IF(Failed_Attempts + 1 >= ?, ?, Locked_Until), Failed_Attempts = IF(Failed_Attempts + 1 >= ?, 0, Failed_Attempts + 1) WHERE ${idCol} = ?`,

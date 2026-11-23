@@ -67,7 +67,10 @@ Pick one:
 - **From the SQL export:** import `database/bankko.sql` (phpMyAdmin: *Import*, or
   `mysql -u root -p < database/bankko.sql`). It contains the schema and the demo data.
 
-### 5. Load demo data (skip if you imported the SQL file)
+Always start from an **empty** database (drop any older `bankko` database first). Use one of the two ways above,
+not both on top of each other.
+
+### 5. Load demo data (skip if you imported the SQL file - it already contains the demo data)
 
 ```bash
 npm run seed
@@ -221,6 +224,8 @@ curl http://localhost:3000/api/v1/users/1/accounts -H "Authorization: Bearer <ac
 
 ## Notes
 
+- Table names are lowercase (`user`, `account`, `audit_log`, ...). Windows/XAMPP always lowercases table names, and
+  TypeORM's schema sync fails if the entity names do not match, so the entities use lowercase names everywhere.
 - `DB_SYNC=true` (the default in development) lets TypeORM keep tables in line with the entities. Set it to
   `false` in production and manage the schema with migrations.
 - The SMS and payment-gateway calls are stubs (`callGateway` in `transactions.service.ts`; notifications are

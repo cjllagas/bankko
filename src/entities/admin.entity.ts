@@ -1,7 +1,7 @@
 import { BeforeInsert, Column, Entity, Index, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
 import { Transaction } from './transaction.entity';
 
-@Entity('Admin')
+@Entity('admin')
 export class Admin {
   @PrimaryGeneratedColumn({ name: 'Admin_ID' }) adminId: number;
   @Column({ length: 50 }) firstName: string;

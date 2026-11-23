@@ -1,7 +1,7 @@
 import { Column, Entity, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
 import { Payee } from './payee.entity';
 
-@Entity('Biller')
+@Entity('biller')
 export class Biller {
   @PrimaryGeneratedColumn({ name: 'Biller_ID' }) billerId: number;
   @Column({ length: 100 }) billerName: string;

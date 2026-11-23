@@ -1,7 +1,8 @@
 import { BeforeInsert, Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
+// Table names are lowercase on purpose: Windows (XAMPP) lowercases them, and TypeORM must match.
 // Append-only: the API only ever inserts and reads this table.
-@Entity('Audit_Log')
+@Entity('audit_log')
 export class AuditLog {
   @PrimaryGeneratedColumn({ name: 'Log_ID', type: 'bigint' }) logId: string;
   @Column({ type: 'enum', enum: ['User', 'Admin', 'System'] }) actorType: 'User' | 'Admin' | 'System';

@@ -2,7 +2,7 @@ import { BeforeInsert, Column, Entity, Index, OneToMany, PrimaryGeneratedColumn 
 import { Account } from './account.entity';
 import { Notification } from './notification.entity';
 
-@Entity('User')
+@Entity('user')
 export class User {
   @PrimaryGeneratedColumn({ name: 'User_ID' }) userId: number;
   @Column({ length: 50 }) firstName: string;

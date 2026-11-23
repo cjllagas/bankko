@@ -3,7 +3,7 @@ import { Account } from './account.entity';
 import { Biller } from './biller.entity';
 import { Transaction } from './transaction.entity';
 
-@Entity('Payee')
+@Entity('payee')
 // a payee (biller + reference number) can be saved only once per account
 @Index(['accountId', 'billerId', 'billerAccountNumber'], { unique: true })
 export class Payee {

@@ -5,7 +5,7 @@ import { Admin } from './admin.entity';
 import { Payee } from './payee.entity';
 import { Notification } from './notification.entity';
 
-@Entity('Transaction')
+@Entity('transaction')
 @Index(['accountId', 'idempotencyKey'], { unique: true }) // the same payment request can never be recorded twice
 export class Transaction {
   @PrimaryGeneratedColumn({ name: 'Transaction_ID' }) transactionId: number;
