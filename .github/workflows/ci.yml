@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel an older run of the same branch when a new commit arrives.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22]   # README requires Node 20 or newer
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (TypeScript compile)
+        run: npm run build
+
+      # Enable once tests exist: add a "test" script to package.json, then
+      # uncomment this step. Transfer/idempotency tests will need a MySQL
+      # service container (see the commented block at the bottom).
+      # - name: Test
+      #   run: npm test
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+# MySQL service for future integration tests (add under a job):
+#   services:
+#     mysql:
+#       image: mysql:8
+#       env:
+#         MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+#         MYSQL_DATABASE: bankko
+#       ports: ["3306:3306"]
+#       options: >-
+#         --health-cmd="mysqladmin ping" --health-interval=10s
+#         --health-timeout=5s --health-retries=5
