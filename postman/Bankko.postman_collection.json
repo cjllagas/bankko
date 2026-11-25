@@ -2,7 +2,7 @@
   "info": {
     "name": "Bankko API",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "ITEC 116 final project - Bankko digital banking backend (NestJS, TypeORM, MySQL, JWT).\n\nRun the folders in order (or use the Collection Runner). Start the API and run `npm run seed` first; the demo accounts use the password in the demoPassword variable."
+    "description": "ITEC 116 final project - Bankko digital banking backend (NestJS, TypeORM, MySQL, JWT).\n\nRun the folders in order (or use the Collection Runner). Start the API and run `npm run seed` first; the demo accounts use the password in the demoPassword variable.\n\nTwo-step login: with OTP_ENABLED=true (default) a login returns a challengeId; copy the 6-digit code (email, or the server console in development) into the adminCode / customerCode variable and run the matching 'Verify' request to get the token. For the Collection Runner either start the server with OTP_ENABLED=false, or with DEMO_SHOW_CODE=true: the login response then carries demoCode and the tests fill adminCode / customerCode automatically."
   },
   "variable": [
     {
@@ -24,6 +24,22 @@
     {
       "key": "newPassword",
       "value": "Str0ng!Passw0rd#1"
+    },
+    {
+      "key": "adminChallengeId",
+      "value": ""
+    },
+    {
+      "key": "adminCode",
+      "value": ""
+    },
+    {
+      "key": "customerChallengeId",
+      "value": ""
+    },
+    {
+      "key": "customerCode",
+      "value": ""
     }
   ],
   "item": [
@@ -40,8 +56,9 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
-                  "const j = pm.response.json(); pm.collectionVariables.set('adminToken', j.accessToken);",
-                  "pm.test('Returns a JWT and role Admin', () => { pm.expect(j.accessToken.split('.')).to.have.lengthOf(3); pm.expect(j.role).to.eql('Admin'); });"
+                  "const j = pm.response.json();",
+                  "if (j.verificationRequired) { pm.collectionVariables.set('adminChallengeId', j.challengeId); if (j.demoCode) pm.collectionVariables.set('adminCode', j.demoCode); pm.test('Code step required, role Admin, email masked', () => { pm.expect(j.challengeId).to.match(/^[a-f0-9]{32}$/); pm.expect(j.role).to.eql('Admin'); pm.expect(j.sentTo).to.include('***@'); pm.expect(j).to.not.have.property('accessToken'); }); }",
+                  "else { pm.collectionVariables.set('adminToken', j.accessToken); pm.test('Returns a JWT and role Admin', () => { pm.expect(j.accessToken.split('.')).to.have.lengthOf(3); pm.expect(j.role).to.eql('Admin'); }); }"
                 ]
               }
             }
@@ -76,6 +93,52 @@
           }
         },
         {
+          "name": "Verify login code (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('adminToken', j.accessToken);",
+                  "pm.test('JWT issued after the code, role Admin', () => { pm.expect(j.accessToken.split('.')).to.have.lengthOf(3); pm.expect(j.role).to.eql('Admin'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challengeId\": \"{{adminChallengeId}}\",\n  \"code\": \"{{adminCode}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/sessions/verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "sessions",
+                "verify"
+              ]
+            }
+          }
+        },
+        {
           "name": "Login (Customer - Juan)",
           "event": [
             {
@@ -84,8 +147,9 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
-                  "const j = pm.response.json(); pm.collectionVariables.set('customerToken', j.accessToken); pm.collectionVariables.set('juanId', j.userId);",
-                  "pm.test('Role is Customer', () => pm.expect(j.role).to.eql('Customer'));"
+                  "const j = pm.response.json();",
+                  "if (j.verificationRequired) { pm.collectionVariables.set('customerChallengeId', j.challengeId); if (j.demoCode) pm.collectionVariables.set('customerCode', j.demoCode); pm.test('Code step required, role Customer, email masked', () => { pm.expect(j.challengeId).to.match(/^[a-f0-9]{32}$/); pm.expect(j.role).to.eql('Customer'); pm.expect(j.sentTo).to.include('***@'); pm.expect(j).to.not.have.property('accessToken'); }); }",
+                  "else { pm.collectionVariables.set('customerToken', j.accessToken); pm.test('Returns a JWT and role Customer', () => { pm.expect(j.accessToken.split('.')).to.have.lengthOf(3); pm.expect(j.role).to.eql('Customer'); }); }"
                 ]
               }
             }
@@ -115,6 +179,183 @@
               "path": [
                 "auth",
                 "sessions"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Verify - wrong code (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 401', () => pm.response.to.have.status(401));",
+                  "pm.test('Generic error', () => pm.expect(pm.response.json().message).to.eql('Invalid or expired verification code.'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challengeId\": \"{{customerChallengeId}}\",\n  \"code\": \"000000\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/sessions/verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "sessions",
+                "verify"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Resend code too soon (429)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 429 (cooldown)', () => pm.response.to.have.status(429));",
+                  "pm.test('Retry-After header present', () => pm.response.to.have.header('Retry-After'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challengeId\": \"{{customerChallengeId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/sessions/resend",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "sessions",
+                "resend"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Verify login code (Customer)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('customerToken', j.accessToken);",
+                  "pm.test('JWT issued after the code, role Customer', () => { pm.expect(j.accessToken.split('.')).to.have.lengthOf(3); pm.expect(j.role).to.eql('Customer'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challengeId\": \"{{customerChallengeId}}\",\n  \"code\": \"{{customerCode}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/sessions/verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "sessions",
+                "verify"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Verify - invalid body (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challengeId\": \"abc\",\n  \"code\": \"12\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/sessions/verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "sessions",
+                "verify"
               ]
             }
           }

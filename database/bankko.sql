@@ -98,6 +98,24 @@ INSERT INTO `biller` VALUES
 (3,'PLDT','Telecom','Active'),
 (4,'Old Cable Co.','Telecom','Inactive');
 /*!40000 ALTER TABLE `biller` ENABLE KEYS */;
+DROP TABLE IF EXISTS `login_challenge`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `login_challenge` (
+  `Challenge_ID` varchar(32) NOT NULL,
+  `Role` enum('Customer','Admin') NOT NULL,
+  `Actor_ID` int(11) NOT NULL,
+  `Code_Hash` varchar(64) NOT NULL,
+  `Attempts` int(11) NOT NULL DEFAULT 0,
+  `Resend_Count` int(11) NOT NULL DEFAULT 0,
+  `Expires_At` datetime NOT NULL,
+  `Last_Sent_At` datetime NOT NULL,
+  `Consumed_At` datetime DEFAULT NULL,
+  `Created_At` datetime NOT NULL,
+  PRIMARY KEY (`Challenge_ID`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
 DROP TABLE IF EXISTS `notification`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8mb4 */;

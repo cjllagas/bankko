@@ -22,11 +22,12 @@ Optional front end: plain HTML/CSS/JavaScript in `public/` (customer page and ad
 
 ## Features
 
-- **Authentication:** login returns a JWT; every route except login and registration is protected; passwords are
+- **Authentication:** two-step login (password, then a 6-digit code emailed to the account); the JWT is issued only
+  after the code is confirmed; every route except login and registration is protected; passwords are
   hashed with bcrypt; all input is validated; accounts lock for 15 minutes after 5 failed logins; logout
   invalidates the token immediately.
 - **Modules:** Users, Accounts, Billers, Payees, Transactions, Notifications, Audit log.
-- **32 REST endpoints** using GET, POST, PUT, PATCH and DELETE with correct status codes (see the table below).
+- **34 REST endpoints** using GET, POST, PUT, PATCH and DELETE with correct status codes (see the table below).
 - **Safe money movement:** a transfer or bill payment runs in one database transaction (debit, credit, record,
   notify, audit). Accounts are row-locked, and an `Idempotency-Key` header makes retries safe (a repeated request
   returns the original result instead of paying twice).
@@ -153,14 +154,17 @@ postman/                  Postman collection
 | Notification | SMS/email records | many to 1 User, optional Transaction |
 | Audit_Log | append-only record of actions | - |
 | Token_Denylist | logged-out JWTs | - |
+| Login_Challenge | pending two-step logins (hashed code, expiry, attempts) | - |
 
 ## Endpoints
 
-All paths start with `/api/v1`. Everything except the two public routes needs `Authorization: Bearer <token>`.
+All paths start with `/api/v1`. Everything except the public routes (login, verify, resend, register) needs `Authorization: Bearer <token>`.
 
 | # | Method and path | Who | Description |
 |---|---|---|---|
-| 1 | POST `/auth/sessions` | public | Log in, returns the JWT |
+| 1 | POST `/auth/sessions` | public | Step 1: email + password. Returns `challengeId` (code emailed) or, with `OTP_ENABLED=false`, the JWT |
+| 2 | POST `/auth/sessions/verify` | public | Step 2: `challengeId` + 6-digit code, returns the JWT |
+| 30 | POST `/auth/sessions/resend` | public | Send a new code for the pending login (60 s cooldown, max 3) |
 | 29 | DELETE `/auth/sessions/current` | any | Log out |
 | 3 | POST `/users` | public | Register a customer |
 | 4 | GET `/users` | admin | List customers (paging, sort, filter) |
@@ -195,16 +199,34 @@ All paths start with `/api/v1`. Everything except the two public routes needs `A
 
 Error body (all errors): `{ "success": false, "statusCode": 400, "message": "...", "errors": ["..."], "timestamp": "..." }`
 
-### Example: log in, then call a protected route
+### Example: log in (two steps), then call a protected route
 
 ```bash
+# Step 1 - password. The server emails a 6-digit code (in development without SMTP it is printed in the server console).
 curl -X POST http://localhost:3000/api/v1/auth/sessions \
   -H "Content-Type: application/json" \
-  -d '{"email":"juan.delacruz@email.com","password":"Bankko#Demo2026"}'
+  -d '{"email":"juan.delacruz@email.com","password":"<demo-password>"}'
+# -> { "verificationRequired": true, "challengeId": "5f3c...", "role": "Customer", "sentTo": "j***@email.com", "expiresInSeconds": 300, "resendAfterSeconds": 60 }
+
+# Step 2 - the code
+curl -X POST http://localhost:3000/api/v1/auth/sessions/verify \
+  -H "Content-Type: application/json" \
+  -d '{"challengeId":"5f3c...","code":"123456"}'
 # -> { "accessToken": "eyJ...", "tokenType": "Bearer", "expiresInSeconds": 1800, "userId": 1, "role": "Customer", ... }
 
 curl http://localhost:3000/api/v1/users/1/accounts -H "Authorization: Bearer <accessToken>"
 ```
+
+### Verification code settings (`.env`)
+
+| Setting | Meaning |
+|---|---|
+| `OTP_ENABLED` | `true` (default) = two-step login. `false` = password only; use it only for automated Postman runs |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | Optional. When set, the code is emailed (Gmail: `smtp.gmail.com`, 587, an App Password). When empty in development, the code is printed in the server console. In production, no SMTP means login fails with 503 |
+
+**Demo mode:** set `DEMO_SHOW_CODE=true` in your local `.env` to also return the code as `demoCode` in the login and resend responses. The login pages then show it in a "DEMO MODE" box with a "Fill it in" button, and the Postman login requests fill `adminCode` / `customerCode` automatically. It is for demonstrations only: it is off by default, prints a warning at startup, and the server refuses to start with it when `NODE_ENV=production`.
+
+A code is 6 digits, valid 5 minutes, usable once, and dies after 3 wrong tries (which also count toward the account lockout). Only a keyed hash of the code is stored.
 
 ## Security measures
 
@@ -213,14 +235,16 @@ curl http://localhost:3000/api/v1/users/1/accounts -H "Authorization: Bearer <ac
 - Global guard: all routes are protected unless explicitly marked public; role (403) and ownership checks in the services.
 - Whitelisted DTO validation (unknown fields are dropped, so a client cannot set its own `userId` or `balance`).
 - Parameterised queries through TypeORM; sort fields come from a whitelist.
+- Two-step login: emailed one-time code (CSPRNG, hashed at rest, 5-minute expiry, single use, 3 attempts, resend cooldown).
+- Registration and email changes accept only `@gmail.com` addresses (6-30 letters, digits or dots, no `+` aliases); login still accepts older addresses.
 - Login rate limiting and account lockout; identical error for unknown email and wrong password.
 - Strict security headers and Content-Security-Policy; secrets only in `.env` (ignored by Git).
 
 ## Changes from the Lab 05 design
 
-- Login is one step: email + password returns the JWT. The SMS one-time-code login (#2) and the large-transfer
-  step-up (#30) from the lab design are not part of this build.
-- Added `DELETE /billers/:billerId` (#33) and `GET /admin/summary`.
+- The one-time-code login (#2) is delivered by **email** instead of SMS, with a resend endpoint (#30). The large-transfer
+  step-up from the lab design is not part of this build.
+- Added `DELETE /billers/:billerId` (#33), `GET /admin/summary`, and `POST /auth/sessions/resend` (#30).
 
 ## Notes
 
