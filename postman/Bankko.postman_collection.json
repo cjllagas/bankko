@@ -40,6 +40,16 @@
     {
       "key": "customerCode",
       "value": ""
+    },
+    {
+      "key": "newChallengeId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "newCode",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -531,7 +541,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.collectionVariables.set('regEmail', 'student' + Date.now() + '@mail.com');",
+                  "pm.collectionVariables.set('regEmail', 'student' + Date.now() + '@gmail.com');",
                   "pm.collectionVariables.set('regPhone', '09' + Math.floor(100000000 + Math.random() * 899999999));"
                 ]
               }
@@ -629,7 +639,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"firstName\": \"Lara\",\n  \"lastName\": \"Mendoza\",\n  \"email\": \"weak@mail.com\",\n  \"phoneNumber\": \"09990000001\",\n  \"password\": \"short\"\n}",
+              "raw": "{\n  \"firstName\": \"Lara\",\n  \"lastName\": \"Mendoza\",\n  \"email\": \"weakpass@gmail.com\",\n  \"phoneNumber\": \"09990000001\",\n  \"password\": \"short\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -656,7 +666,9 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
-                  "const j = pm.response.json(); pm.collectionVariables.set('newToken', j.accessToken);"
+                  "const j = pm.response.json();",
+                  "if (j.verificationRequired) { pm.collectionVariables.set('newChallengeId', j.challengeId); if (j.demoCode) pm.collectionVariables.set('newCode', j.demoCode); pm.test('Code step required', () => pm.expect(j.challengeId).to.match(/^[a-f0-9]{32}$/)); }",
+                  "else { pm.collectionVariables.set('newToken', j.accessToken); }"
                 ]
               }
             }
@@ -686,6 +698,52 @@
               "path": [
                 "auth",
                 "sessions"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Verify login code (new customer)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('newToken', j.accessToken);",
+                  "pm.test('JWT issued after the code', () => pm.expect(j.accessToken.split('.')).to.have.lengthOf(3));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challengeId\": \"{{newChallengeId}}\",\n  \"code\": \"{{newCode}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/sessions/verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "sessions",
+                "verify"
               ]
             }
           }
