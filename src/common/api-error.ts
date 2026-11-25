@@ -14,6 +14,7 @@ export const E = {
   notFound: (m: string, errs: string[] = []) => new ApiError(404, m, errs),
   conflict: (m: string, errs: string[] = []) => new ApiError(409, m, errs),
   unprocessable: (m: string, errs: string[] = []) => new ApiError(422, m, errs),
+  unavailable: (m: string, errs: string[] = []) => new ApiError(503, m, errs),
   tooMany: (retryAfterSeconds: number) =>
     new ApiError(429, 'Too many attempts.', [`Try again in ${Math.max(1, Math.ceil(retryAfterSeconds / 60))} minute(s).`],
       { 'Retry-After': String(Math.max(1, Math.ceil(retryAfterSeconds))) }),

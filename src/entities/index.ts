@@ -7,6 +7,7 @@ import { Transaction } from './transaction.entity';
 import { Notification } from './notification.entity';
 import { AuditLog } from './audit-log.entity';
 import { TokenDenylist } from './token-denylist.entity';
+import { LoginChallenge } from './login-challenge.entity';
 
-export { User, Admin, Account, Biller, Payee, Transaction, Notification, AuditLog, TokenDenylist };
-export const ENTITIES = [User, Admin, Account, Biller, Payee, Transaction, Notification, AuditLog, TokenDenylist];
+export { User, Admin, Account, Biller, Payee, Transaction, Notification, AuditLog, TokenDenylist, LoginChallenge };
+export const ENTITIES = [User, Admin, Account, Biller, Payee, Transaction, Notification, AuditLog, TokenDenylist, LoginChallenge];

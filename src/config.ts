@@ -25,6 +25,14 @@ if (!jwtSecret) {
   console.warn('[config] JWT_SECRET is shorter than 32 characters. Use a longer random value.');
 }
 
+// DEMO ONLY: also return the verification code in the login response so it can be shown on screen.
+// This defeats the purpose of a second factor, so it is off by default and refused in production.
+const demoShowCode = env('DEMO_SHOW_CODE') === 'true';
+if (demoShowCode && isProd) throw new Error('DEMO_SHOW_CODE=true is not allowed when NODE_ENV=production.');
+if (demoShowCode) console.warn('[config] DEMO_SHOW_CODE=true: verification codes are returned in API responses. Use for demos only.');
+
+if (isProd && env('OTP_ENABLED') === 'false') console.warn('[config] OTP_ENABLED=false: login verification codes are switched off.');
+
 export const config = {
   isProd,
   port: int(env('PORT'), 3000),
@@ -42,5 +50,23 @@ export const config = {
   },
   jwt: { secret: jwtSecret, issuer: 'bankko-auth', ttlSeconds: 1800 },
   lockout: { maxFailed: 5, minutes: 15 },
+  // Two-step login: after the password is accepted, a one-time code is sent to the account's email.
+  otp: {
+    enabled: env('OTP_ENABLED') !== 'false',
+    length: 6,
+    ttlSeconds: 300,            // a code is valid for 5 minutes
+    maxAttempts: 3,             // wrong guesses allowed per code
+    resendCooldownSeconds: 60,  // minimum gap between two sends
+    maxResends: 3,              // resends allowed per login attempt
+  },
+  demo: { showCode: demoShowCode },
+  // SMTP is optional. Without it (and outside production) codes are printed in the server console instead.
+  mail: {
+    host: env('SMTP_HOST'),
+    port: int(env('SMTP_PORT'), 587),
+    user: env('SMTP_USER'),
+    pass: env('SMTP_PASS'),
+    from: env('MAIL_FROM') || 'Bankko <no-reply@bankko.example>',
+  },
   rateLimit: { windowMs: 15 * 60 * 1000, max: 30 },
 };
