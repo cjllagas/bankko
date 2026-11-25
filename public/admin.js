@@ -149,6 +149,65 @@
 
     const showErr = (m) => { err.textContent = m; show(err, true); show(note, false); };
 
+    // Stores the session once the JWT is issued. Returns false when a Customer token ended up in this console.
+    async function finish(r) {
+      if (r.role !== 'Admin') {
+        await api('DELETE', '/auth/sessions/current', { token: r.accessToken }).catch(() => {});
+        return false;
+      }
+      state.token = r.accessToken; state.name = r.name || 'Administrator';
+      store.set('bk_token', state.token); store.set('bk_name', state.name);
+      start();
+      return true;
+    }
+
+    // Login step 2 (#2 verify, #30 resend): type the 6-digit code that was emailed.
+    function codeStep(c) {
+      clear(panel);
+      const info = h('div', { class: 'hint' });
+      const code = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: 6, pattern: '[0-9]{6}', placeholder: '6-digit code', required: true });
+      const btn = h('button', { type: 'submit', class: 'btn' }, 'Verify and log in');
+      const demo = h('div', { class: 'demo hidden' });
+      const showDemo = () => {                         // only present when the server runs with DEMO_SHOW_CODE=true
+        clear(demo);
+        if (!c.demoCode) { show(demo, false); return; }
+        demo.append(h('span', null, 'DEMO MODE - your verification code:'), h('b', null, c.demoCode),
+          h('button', { type: 'button', onclick: () => { code.value = c.demoCode; code.focus(); } }, 'Fill it in'));
+        show(demo, true);
+      };
+      const resend = h('a', { onclick: () => doResend(), style: 'cursor:pointer' }, 'Resend code');
+      let wait = c.resendAfterSeconds || 60, timer;
+      const tick = () => {
+        resend.textContent = wait > 0 ? `Resend code (${wait}s)` : 'Resend code';
+        resend.style.opacity = wait > 0 ? '.5' : '1';
+        if (wait > 0) { wait -= 1; timer = setTimeout(tick, 1000); }
+      };
+      async function doResend() {
+        if (wait > 0) return;
+        show(err, false);
+        try {
+          c = await api('POST', '/auth/sessions/resend', { body: { challengeId: c.challengeId }, token: null });
+          info.textContent = 'A new code was sent to ' + c.sentTo + '.';
+          wait = c.resendAfterSeconds || 60; tick(); showDemo();
+        } catch (ex) { showErr(ex.detail); }
+      }
+      panel.append(
+        h('h2', null, 'Enter your verification code'),
+        h('p', { class: 'sub' }, 'We sent a 6-digit code to ' + c.sentTo + '. It expires in ' + Math.round(c.expiresInSeconds / 60) + ' minutes.'),
+        h('form', {
+          onsubmit: async (e) => {
+            e.preventDefault(); show(err, false); btn.disabled = true;
+            try {
+              const r = await api('POST', '/auth/sessions/verify', { body: { challengeId: c.challengeId, code: code.value.trim() }, token: null });
+              clearTimeout(timer);
+              if (!(await finish(r))) { step1(); showErr('This console is for administrators only.'); }
+            } catch (ex) { showErr(ex.detail); btn.disabled = false; code.select(); }
+          },
+        }, h('label', null, 'Verification code'), code, demo, info, err, btn),
+        h('div', { class: 'links' }, resend, h('a', { onclick: () => { clearTimeout(timer); step1(); }, style: 'cursor:pointer' }, 'Back to log in')));
+      tick(); showDemo(); code.focus();
+    }
+
     function step1() {
       clear(panel);
       const email = h('input', { type: 'email', autocomplete: 'username', maxlength: 100, placeholder: 'admin@bankko.example', required: true });
@@ -162,13 +221,11 @@
             e.preventDefault(); show(err, false); btn.disabled = true;
             try {
               const r = await api('POST', '/auth/sessions', { body: { email: email.value.trim(), password: pass.value }, token: null });
-              if (r.role !== 'Admin') {                       // a Customer token must not stay in this console
-                await api('DELETE', '/auth/sessions/current', { token: r.accessToken }).catch(() => {});
-                showErr('This console is for administrators only.'); btn.disabled = false; return;
+              if (r.verificationRequired) {                   // step 2: the code that was emailed to the administrator
+                if (r.role !== 'Admin') { showErr('This console is for administrators only.'); btn.disabled = false; return; }
+                codeStep(r); return;
               }
-              state.token = r.accessToken; state.name = r.name || 'Administrator';
-              store.set('bk_token', state.token); store.set('bk_name', state.name);
-              start();
+              if (!(await finish(r))) { showErr('This console is for administrators only.'); btn.disabled = false; }
             } catch (ex) { showErr(ex.detail); btn.disabled = false; }
           },
         }, h('label', null, 'Email address'), email, h('label', null, 'Password'), pass, note, err, btn));

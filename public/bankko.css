@@ -166,3 +166,8 @@ dialog textarea{width:100%;padding:11px 12px;border:1px solid #c9c9c9;border-rad
 .toast{position:fixed;right:20px;bottom:20px;background:#2b2b2b;color:#fff;padding:12px 18px;border-radius:var(--r);font-size:14px;z-index:20;max-width:80vw}
 .toast.bad{background:var(--red-d)}
 .wide{max-width:560px}
+
+/* demo mode: shows the verification code on the login screen (DEMO_SHOW_CODE=true on the server) */
+.demo{background:#fff8e1;border:1px dashed #d9a400;border-radius:var(--r);padding:10px 12px;margin:14px 0 4px;font-size:13px;color:#6b5200}
+.demo b{display:block;font-size:22px;letter-spacing:6px;margin:4px 0 6px;color:#3d2f00}
+.demo button{background:none;border:0;padding:0;font:inherit;font-weight:700;color:var(--red);cursor:pointer;text-decoration:underline}

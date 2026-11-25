@@ -169,12 +169,77 @@
     const panel = h('div', { class: 'panel' });
     $app.append(h('main', null, h('div', { class: 'auth' }, panel)));
 
+    // Stores the session once the JWT is issued. Returns false when an Admin token ended up on this page.
+    async function finish(r) {
+      if (r.role !== 'Customer') {
+        await api('DELETE', '/auth/sessions/current', { token: r.accessToken }).catch(() => {});
+        return false;
+      }
+      state.token = r.accessToken; state.userId = r.userId; state.name = r.name || 'Customer';
+      store.set('bkc_token', state.token); store.set('bkc_uid', String(state.userId));
+      try {
+        const u = await api('GET', `/users/${state.userId}`);
+        state.name = `${u.firstName} ${u.lastName}`;
+      } catch (_) { /* keep default name */ }
+      store.set('bkc_name', state.name);
+      start();
+      return true;
+    }
+
+    // Login step 2 (#2 verify, #30 resend): type the 6-digit code that was emailed.
+    function codeStep(c) {
+      clear(panel);
+      const err = h('div', { class: 'err hidden' });
+      const note = h('div', { class: 'ok hidden' });
+      const code = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: 6, pattern: '[0-9]{6}', placeholder: '6-digit code', required: true });
+      const btn = h('button', { type: 'submit', class: 'btn' }, 'Verify and log in');
+      const demo = h('div', { class: 'demo hidden' });
+      const showDemo = () => {                         // only present when the server runs with DEMO_SHOW_CODE=true
+        clear(demo);
+        if (!c.demoCode) { show(demo, false); return; }
+        demo.append(h('span', null, 'DEMO MODE - your verification code:'), h('b', null, c.demoCode),
+          h('button', { type: 'button', onclick: () => { code.value = c.demoCode; code.focus(); } }, 'Fill it in'));
+        show(demo, true);
+      };
+      const resend = h('a', { onclick: () => doResend() }, 'Resend code');
+      let wait = c.resendAfterSeconds || 60, timer;
+      const tick = () => {
+        resend.textContent = wait > 0 ? `Resend code (${wait}s)` : 'Resend code';
+        resend.style.opacity = wait > 0 ? '.5' : '1';
+        if (wait > 0) { wait -= 1; timer = setTimeout(tick, 1000); }
+      };
+      async function doResend() {
+        if (wait > 0) return;
+        show(err, false);
+        try {
+          c = await api('POST', '/auth/sessions/resend', { body: { challengeId: c.challengeId }, token: null });
+          note.textContent = 'A new code was sent to ' + c.sentTo + '.'; show(note, true);
+          wait = c.resendAfterSeconds || 60; tick(); showDemo();
+        } catch (ex) { err.textContent = ex.detail; show(err, true); }
+      }
+      panel.append(
+        h('h2', null, 'Enter your verification code'),
+        h('p', { class: 'sub' }, 'We sent a 6-digit code to ' + c.sentTo + '. It expires in ' + Math.round(c.expiresInSeconds / 60) + ' minutes.'),
+        h('form', {
+          onsubmit: async (e) => {
+            e.preventDefault(); show(err, false); show(note, false); btn.disabled = true;
+            try {
+              const r = await api('POST', '/auth/sessions/verify', { body: { challengeId: c.challengeId, code: code.value.trim() }, token: null });
+              clearTimeout(timer);
+              if (!(await finish(r))) { step1('Administrators log in at /admin.'); }
+            } catch (ex) { err.textContent = ex.detail; show(err, true); btn.disabled = false; code.select(); }
+          },
+        }, h('label', null, 'Verification code'), code, demo, note, err, btn),
+        h('div', { class: 'links' }, resend, h('a', { onclick: () => { clearTimeout(timer); step1(); } }, 'Back to log in')));
+      tick(); showDemo(); code.focus();
+    }
+
     function step1(msg, ok) {
       clear(panel);
       const err = h('div', { class: 'err hidden' });
       const note = h('div', { class: msg ? (ok ? 'ok' : 'err') : 'err hidden' }, msg || '');
       const showErr = (m) => { err.textContent = m; show(err, true); show(note, false); };
-      const email = h('input', { type: 'email', autocomplete: 'username', maxlength: 100, placeholder: 'you@email.com', required: true });
+      const email = h('input', { type: 'email', autocomplete: 'username', maxlength: 100, placeholder: 'you@gmail.com', required: true });
       const pass = h('input', { type: 'password', autocomplete: 'current-password', maxlength: 200, required: true });
       const btn = h('button', { type: 'submit', class: 'btn' }, 'Log in');
       panel.append(
@@ -185,18 +250,11 @@
             e.preventDefault(); show(err, false); btn.disabled = true;
             try {
               const r = await api('POST', '/auth/sessions', { body: { email: email.value.trim(), password: pass.value }, token: null });
-              if (r.role !== 'Customer') {                    // an Admin token must not stay on the customer page
-                await api('DELETE', '/auth/sessions/current', { token: r.accessToken }).catch(() => {});
-                showErr('Administrators log in at /admin.'); btn.disabled = false; return;
+              if (r.verificationRequired) {                   // step 2: the code that was emailed to the customer
+                if (r.role !== 'Customer') { showErr('Administrators log in at /admin.'); btn.disabled = false; return; }
+                codeStep(r); return;
               }
-              state.token = r.accessToken; state.userId = r.userId; state.name = r.name || 'Customer';
-              store.set('bkc_token', state.token); store.set('bkc_uid', String(state.userId));
-              try {
-                const u = await api('GET', `/users/${state.userId}`);
-                state.name = `${u.firstName} ${u.lastName}`;
-              } catch (_) { /* keep default name */ }
-              store.set('bkc_name', state.name);
-              start();
+              if (!(await finish(r))) { showErr('Administrators log in at /admin.'); btn.disabled = false; }
             } catch (ex) { showErr(ex.detail); btn.disabled = false; }
           },
         }, h('label', null, 'Email address'), email, h('label', null, 'Password'), pass, note, err, btn),
@@ -211,7 +269,7 @@
       const f = {
         firstName: h('input', { type: 'text', maxlength: 50, required: true, autocomplete: 'given-name' }),
         lastName: h('input', { type: 'text', maxlength: 50, required: true, autocomplete: 'family-name' }),
-        email: h('input', { type: 'email', maxlength: 100, required: true, autocomplete: 'email' }),
+        email: h('input', { type: 'email', maxlength: 100, required: true, autocomplete: 'email', placeholder: 'yourname@gmail.com' }),
         phoneNumber: h('input', { type: 'tel', maxlength: 15, required: true, inputmode: 'numeric', placeholder: '09171234567', autocomplete: 'tel' }),
         password: h('input', { type: 'password', maxlength: 200, required: true, autocomplete: 'new-password' }),
         confirm: h('input', { type: 'password', maxlength: 200, required: true, autocomplete: 'new-password' }),
@@ -219,7 +277,7 @@
       const btn = h('button', { type: 'submit', class: 'btn' }, 'Create account');
       panel.append(
         h('h2', null, 'Create your Bankko account'),
-        h('p', { class: 'sub' }, 'Your mobile number receives the one-time code each time you log in.'),
+        h('p', { class: 'sub' }, 'Each time you log in, a one-time code is sent to your Gmail address.'),
         h('form', {
           onsubmit: async (e) => {
             e.preventDefault(); show(err, false);
@@ -236,7 +294,8 @@
           },
         },
         h('div', { class: 'form2' }, h('div', null, h('label', null, 'First name'), f.firstName), h('div', null, h('label', null, 'Last name'), f.lastName)),
-        h('label', null, 'Email address'), f.email,
+        h('label', null, 'Gmail address'), f.email,
+        h('p', { class: 'hint' }, 'Must be a @gmail.com address. Your login codes are sent here.'),
         h('label', null, 'Mobile number'), f.phoneNumber,
         h('label', null, 'Password'), f.password,
         h('p', { class: 'hint' }, 'At least 12 characters, with 3 of: lower case, upper case, numbers, symbols.'),
