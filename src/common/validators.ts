@@ -1,7 +1,7 @@
 import { applyDecorators } from '@nestjs/common';
 import { Transform } from 'class-transformer';
 import {
-  IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength,
+  IsEmail, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength,
   registerDecorator, ValidationArguments,
 } from 'class-validator';
 
@@ -70,3 +70,15 @@ export function StrongPassword() {
     }),
   );
 }
+
+// Gmail local part: 6-30 letters, digits or single dots; cannot start or end with a dot.
+const GMAIL = /^[a-z0-9](?:[a-z0-9]|\.(?!\.)){4,28}[a-z0-9]@gmail\.com$/;
+export const isGmailAddress = (v: unknown) => typeof v === 'string' && GMAIL.test(v);
+
+/** Email that must be a real-looking @gmail.com address (used when an email is registered or changed, not at login). */
+export const GmailAddress = () => applyDecorators(
+  Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value)),
+  IsEmail({}, { message: 'email must be a valid email address.' }),
+  MaxLength(100, { message: 'email must not exceed 100 characters.' }),
+  Matches(GMAIL, { message: 'email must be a Gmail address (name@gmail.com) with 6 to 30 letters, numbers or dots.' }),
+);
