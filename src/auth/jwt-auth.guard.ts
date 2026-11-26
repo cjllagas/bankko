@@ -41,10 +41,13 @@ export class JwtAuthGuard implements CanActivate {
 
     // The account must still exist and be active (a deactivated admin loses access at once).
     const sub = Number(p.sub);
-    const active = p.role === 'Admin'
-      ? await this.admins.existsBy({ adminId: sub, status: 'Active' })
-      : await this.users.existsBy({ userId: sub });
-    if (!active) throw E.unauthorized();
+    if (p.role === 'Admin') {
+      if (!(await this.admins.existsBy({ adminId: sub, status: 'Active' }))) throw E.unauthorized();
+    } else {
+      // A customer's tokens stop working once the email or password changed after they were issued (token version moved on).
+      const u = await this.users.findOne({ where: { userId: sub }, select: { userId: true, tokenVersion: true } });
+      if (!u || (p.tv ?? 0) !== u.tokenVersion) throw E.unauthorized();
+    }
 
     req.auth = { sub, role: p.role, jti: p.jti, exp: p.exp };
 

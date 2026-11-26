@@ -14,7 +14,7 @@ import { LoginDto, ResendLoginDto, VerifyLoginDto } from './auth.dto';
 
 interface Actor {
   role: Role; id: number; firstName: string; lastName: string; email: string; hash: string;
-  status: 'Active' | 'Inactive'; lockedUntil: Date | null;
+  status: 'Active' | 'Inactive'; lockedUntil: Date | null; tokenVersion: number;
 }
 
 @Injectable()
@@ -35,11 +35,11 @@ export class AuthService {
   private async findActor(email: string): Promise<Actor | null> {
     const admin = await this.admins.createQueryBuilder('a').addSelect('a.password').where('a.email = :email', { email }).getOne();
     if (admin) {
-      return { role: 'Admin', id: admin.adminId, firstName: admin.firstName, lastName: admin.lastName, email: admin.email, hash: admin.password, status: admin.status, lockedUntil: admin.lockedUntil };
+      return { role: 'Admin', id: admin.adminId, firstName: admin.firstName, lastName: admin.lastName, email: admin.email, hash: admin.password, status: admin.status, lockedUntil: admin.lockedUntil, tokenVersion: 0 };
     }
     const user = await this.users.createQueryBuilder('u').addSelect('u.password').where('u.email = :email', { email }).getOne();
     if (user) {
-      return { role: 'Customer', id: user.userId, firstName: user.firstName, lastName: user.lastName, email: user.email, hash: user.password, status: 'Active', lockedUntil: user.lockedUntil };
+      return { role: 'Customer', id: user.userId, firstName: user.firstName, lastName: user.lastName, email: user.email, hash: user.password, status: 'Active', lockedUntil: user.lockedUntil, tokenVersion: user.tokenVersion };
     }
     return null;
   }
@@ -47,10 +47,10 @@ export class AuthService {
   private async actorById(role: Role, id: number): Promise<Actor | null> {
     if (role === 'Admin') {
       const a = await this.admins.findOneBy({ adminId: id });
-      return a && { role, id, firstName: a.firstName, lastName: a.lastName, email: a.email, hash: '', status: a.status, lockedUntil: a.lockedUntil };
+      return a && { role, id, firstName: a.firstName, lastName: a.lastName, email: a.email, hash: '', status: a.status, lockedUntil: a.lockedUntil, tokenVersion: 0 };
     }
     const u = await this.users.findOneBy({ userId: id });
-    return u && { role, id, firstName: u.firstName, lastName: u.lastName, email: u.email, hash: '', status: 'Active', lockedUntil: u.lockedUntil };
+    return u && { role, id, firstName: u.firstName, lastName: u.lastName, email: u.email, hash: '', status: 'Active', lockedUntil: u.lockedUntil, tokenVersion: u.tokenVersion };
   }
 
   // Atomic: count the failure and lock the account after maxFailed (Lab 04 Failed_Attempts / Locked_Until).
@@ -95,7 +95,7 @@ export class AuthService {
     if (actor.role === 'Admin') await this.admins.update({ adminId: actor.id }, { failedAttempts: 0, lockedUntil: null });
     else await this.users.update({ userId: actor.id }, { failedAttempts: 0, lockedUntil: null });
 
-    const accessToken = await this.jwt.signAsync({ sub: String(actor.id), role: actor.role }, { jwtid: crypto.randomBytes(8).toString('hex') });
+    const accessToken = await this.jwt.signAsync({ sub: String(actor.id), role: actor.role, tv: actor.tokenVersion }, { jwtid: crypto.randomBytes(8).toString('hex') });
     await this.audit.record(this.actorType(actor.role), actor.id, 'LOGIN_SUCCESS', null, null, ip);
     return {
       accessToken, tokenType: 'Bearer', expiresInSeconds: config.jwt.ttlSeconds,
