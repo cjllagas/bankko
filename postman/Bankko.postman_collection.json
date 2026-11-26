@@ -2,7 +2,7 @@
   "info": {
     "name": "Bankko API",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "ITEC 116 final project - Bankko digital banking backend (NestJS, TypeORM, MySQL, JWT).\n\nRun the folders in order (or use the Collection Runner). Start the API and run `npm run seed` first; the demo accounts use the password in the demoPassword variable.\n\nTwo-step login: with OTP_ENABLED=true (default) a login returns a challengeId; copy the 6-digit code (email, or the server console in development) into the adminCode / customerCode variable and run the matching 'Verify' request to get the token. For the Collection Runner either start the server with OTP_ENABLED=false, or with DEMO_SHOW_CODE=true: the login response then carries demoCode and the tests fill adminCode / customerCode automatically."
+    "description": "ITEC 116 final project - Bankko digital banking backend (NestJS, TypeORM, MySQL, JWT).\n\nRun the folders in order (or use the Collection Runner). Start the API and run `npm run seed` first; the demo accounts use the password in the demoPassword variable.\n\nTwo-step login: with OTP_ENABLED=true (default) a login returns a challengeId; copy the 6-digit code (email, or the server console in development) into the adminCode / customerCode variable and run the matching 'Verify' request to get the token. For the Collection Runner either start the server with OTP_ENABLED=false, or with DEMO_SHOW_CODE=true: the login response then carries demoCode and the tests fill adminCode / customerCode automatically.\n\nSelf-healing start: right after the admin login, folder 1 looks up the demo customer (Juan) and, when the server runs with DEMO_SHOW_CODE=true, restores his demo password through the admin reset flow. So the run still works after Juan's email or password was changed while testing. If you run with OTP_ENABLED=false and without DEMO_SHOW_CODE, set the customerEmail and demoPassword collection variables to Juan's real login."
   },
   "variable": [
     {
@@ -50,6 +50,51 @@
       "key": "newCode",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "changedEmail",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "changedPassword",
+      "value": "An0ther!Passw0rd#2",
+      "type": "string"
+    },
+    {
+      "key": "resetPassword",
+      "value": "R3set!Passw0rd#3",
+      "type": "string"
+    },
+    {
+      "key": "badResetToken",
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "type": "string"
+    },
+    {
+      "key": "emailRequestId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "emailCode",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "resetToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "demoResetToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "demoResetTokenSafe",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -65,10 +110,12 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
                   "if (j.verificationRequired) { pm.collectionVariables.set('adminChallengeId', j.challengeId); if (j.demoCode) pm.collectionVariables.set('adminCode', j.demoCode); pm.test('Code step required, role Admin, email masked', () => { pm.expect(j.challengeId).to.match(/^[a-f0-9]{32}$/); pm.expect(j.role).to.eql('Admin'); pm.expect(j.sentTo).to.include('***@'); pm.expect(j).to.not.have.property('accessToken'); }); }",
-                  "else { pm.collectionVariables.set('adminToken', j.accessToken); pm.test('Returns a JWT and role Admin', () => { pm.expect(j.accessToken.split('.')).to.have.lengthOf(3); pm.expect(j.role).to.eql('Admin'); }); }"
+                  "else { pm.collectionVariables.set('adminToken', j.accessToken); pm.test('Returns a JWT and role Admin', () => { pm.expect(j.accessToken.split('.')).to.have.lengthOf(3); pm.expect(j.role).to.eql('Admin'); }); }",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -110,10 +157,12 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
                   "pm.collectionVariables.set('adminToken', j.accessToken);",
-                  "pm.test('JWT issued after the code, role Admin', () => { pm.expect(j.accessToken.split('.')).to.have.lengthOf(3); pm.expect(j.role).to.eql('Admin'); });"
+                  "pm.test('JWT issued after the code, role Admin', () => { pm.expect(j.accessToken.split('.')).to.have.lengthOf(3); pm.expect(j.role).to.eql('Admin'); });",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -149,6 +198,163 @@
           }
         },
         {
+          "name": "Setup 1/3 - find the demo customer (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const rows = (pm.response.json().data || []);",
+                  "// Juan Dela Cruz is the first seeded customer. His current email is read from the database, so this works even if the email was changed.",
+                  "const juan = rows.find(u => u.firstName === 'Juan' && u.lastName === 'Dela Cruz') || rows[0];",
+                  "if (juan) { pm.collectionVariables.set('juanId', juan.userId); pm.collectionVariables.set('customerEmail', juan.email); }",
+                  "pm.test('Demo customer found', () => pm.expect(juan, 'No customers in the database. Run npm run seed first.').to.be.ok);",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users?limit=100&sort=dateRegistered",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "100"
+                },
+                {
+                  "key": "sort",
+                  "value": "dateRegistered"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Setup 2/3 - start a password reset for the demo customer (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "// Needs DEMO_SHOW_CODE=true (the reset token is returned only in demo mode). A 429 means a reset was started less than a minute ago.",
+                  "const ok = pm.response.code === 200;",
+                  "pm.collectionVariables.set('demoResetToken', ok && pm.response.json().demoToken ? pm.response.json().demoToken : '');",
+                  "pm.test('Reset started, or skipped (429 cooldown)', () => pm.expect([200, 429]).to.include(pm.response.code));",
+                  "if (!ok) console.log('Setup 2/3 skipped, status ' + pm.response.code + '. The existing demo password is used.');",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{juanId}}/password-reset",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{juanId}}",
+                "password-reset"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{customerEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Setup 3/3 - customer sets the demo password again",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('demoResetTokenSafe', pm.collectionVariables.get('demoResetToken') || pm.collectionVariables.get('badResetToken'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "// 200 = demo password restored. 400 = nothing to restore (no token), which is fine when the password is already the demo one.",
+                  "pm.test('Demo password restored, or nothing to restore', () => pm.expect([200, 400]).to.include(pm.response.code));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/password-reset/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "password-reset",
+                "confirm"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{demoResetTokenSafe}}\",\n  \"newPassword\": \"{{demoPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "Login (Customer - Juan)",
           "event": [
             {
@@ -156,10 +362,12 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
                   "if (j.verificationRequired) { pm.collectionVariables.set('customerChallengeId', j.challengeId); if (j.demoCode) pm.collectionVariables.set('customerCode', j.demoCode); pm.test('Code step required, role Customer, email masked', () => { pm.expect(j.challengeId).to.match(/^[a-f0-9]{32}$/); pm.expect(j.role).to.eql('Customer'); pm.expect(j.sentTo).to.include('***@'); pm.expect(j).to.not.have.property('accessToken'); }); }",
-                  "else { pm.collectionVariables.set('customerToken', j.accessToken); pm.test('Returns a JWT and role Customer', () => { pm.expect(j.accessToken.split('.')).to.have.lengthOf(3); pm.expect(j.role).to.eql('Customer'); }); }"
+                  "else { pm.collectionVariables.set('customerToken', j.accessToken); pm.collectionVariables.set('juanId', j.userId); pm.test('Returns a JWT and role Customer', () => { pm.expect(j.accessToken.split('.')).to.have.lengthOf(3); pm.expect(j.role).to.eql('Customer'); }); }",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -201,8 +409,10 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 401', () => pm.response.to.have.status(401));",
-                  "pm.test('Generic error', () => pm.expect(pm.response.json().message).to.eql('Invalid or expired verification code.'));"
+                  "pm.test('Generic error', () => pm.expect(pm.response.json().message).to.eql('Invalid or expired verification code.'));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -245,8 +455,10 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 429 (cooldown)', () => pm.response.to.have.status(429));",
-                  "pm.test('Retry-After header present', () => pm.response.to.have.header('Retry-After'));"
+                  "pm.test('Retry-After header present', () => pm.response.to.have.header('Retry-After'));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -289,10 +501,12 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
-                  "pm.collectionVariables.set('customerToken', j.accessToken);",
-                  "pm.test('JWT issued after the code, role Customer', () => { pm.expect(j.accessToken.split('.')).to.have.lengthOf(3); pm.expect(j.role).to.eql('Customer'); });"
+                  "pm.collectionVariables.set('customerToken', j.accessToken); pm.collectionVariables.set('juanId', j.userId);",
+                  "pm.test('JWT issued after the code, role Customer', () => { pm.expect(j.accessToken.split('.')).to.have.lengthOf(3); pm.expect(j.role).to.eql('Customer'); });",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -335,7 +549,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 400', () => pm.response.to.have.status(400));"
+                  "try {",
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -378,8 +594,10 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 401', () => pm.response.to.have.status(401));",
-                  "pm.test('Generic error, no hint which field was wrong', () => pm.expect(pm.response.json().message).to.eql('Invalid email or password.'));"
+                  "pm.test('Generic error, no hint which field was wrong', () => pm.expect(pm.response.json().message).to.eql('Invalid email or password.'));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -421,8 +639,10 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 400', () => pm.response.to.have.status(400));",
-                  "pm.test('Validation errors listed', () => pm.expect(pm.response.json().errors.length).to.be.above(0));"
+                  "pm.test('Validation errors listed', () => pm.expect(pm.response.json().errors.length).to.be.above(0));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -464,7 +684,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 401', () => pm.response.to.have.status(401));"
+                  "try {",
+                  "pm.test('Status is 401', () => pm.response.to.have.status(401));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -492,7 +714,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 401', () => pm.response.to.have.status(401));"
+                  "try {",
+                  "pm.test('Status is 401', () => pm.response.to.have.status(401));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -530,9 +754,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 201', () => pm.response.to.have.status(201));",
                   "const j = pm.response.json(); pm.collectionVariables.set('newUserId', j.userId);",
-                  "pm.test('Password is never returned', () => pm.expect(j).to.not.have.property('password'));"
+                  "pm.test('Password is never returned', () => pm.expect(j).to.not.have.property('password'));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             },
@@ -583,7 +809,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 409', () => pm.response.to.have.status(409));"
+                  "try {",
+                  "pm.test('Status is 409', () => pm.response.to.have.status(409));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -624,7 +852,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 400', () => pm.response.to.have.status(400));"
+                  "try {",
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -665,10 +895,12 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
                   "if (j.verificationRequired) { pm.collectionVariables.set('newChallengeId', j.challengeId); if (j.demoCode) pm.collectionVariables.set('newCode', j.demoCode); pm.test('Code step required', () => pm.expect(j.challengeId).to.match(/^[a-f0-9]{32}$/)); }",
-                  "else { pm.collectionVariables.set('newToken', j.accessToken); }"
+                  "else { pm.collectionVariables.set('newToken', j.accessToken); }",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -710,10 +942,12 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
                   "pm.collectionVariables.set('newToken', j.accessToken);",
-                  "pm.test('JWT issued after the code', () => pm.expect(j.accessToken.split('.')).to.have.lengthOf(3));"
+                  "pm.test('JWT issued after the code', () => pm.expect(j.accessToken.split('.')).to.have.lengthOf(3));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -756,9 +990,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
-                  "pm.test('Paginated envelope', () => { pm.expect(j.data).to.be.an('array'); pm.expect(j).to.have.property('totalItems'); });"
+                  "pm.test('Paginated envelope', () => { pm.expect(j.data).to.be.an('array'); pm.expect(j).to.have.property('totalItems'); });",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -800,7 +1036,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 403', () => pm.response.to.have.status(403));"
+                  "try {",
+                  "pm.test('Status is 403', () => pm.response.to.have.status(403));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -832,7 +1070,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -865,7 +1105,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 403', () => pm.response.to.have.status(403));"
+                  "try {",
+                  "pm.test('Status is 403', () => pm.response.to.have.status(403));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -898,9 +1140,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
-                  "pm.test('Last name changed', () => pm.expect(j.lastName).to.eql('Mendoza-Cruz'));"
+                  "pm.test('Last name changed', () => pm.expect(j.lastName).to.eql('Mendoza-Cruz'));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -946,7 +1190,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 404', () => pm.response.to.have.status(404));"
+                  "try {",
+                  "pm.test('Status is 404', () => pm.response.to.have.status(404));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -985,10 +1231,12 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
                   "pm.collectionVariables.set('juanAccountId', j.data[0].accountId);",
-                  "pm.test('Has a balance', () => pm.expect(j.data[0].balance).to.be.a('number'));"
+                  "pm.test('Has a balance', () => pm.expect(j.data[0].balance).to.be.a('number'));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1022,9 +1270,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 201', () => pm.response.to.have.status(201));",
                   "const j = pm.response.json(); pm.collectionVariables.set('newAccountId', j.accountId); pm.collectionVariables.set('newAccountNumber', j.accountNumber);",
-                  "pm.test('Starts at 0.00 and Active', () => { pm.expect(j.balance).to.eql(0); pm.expect(j.status).to.eql('Active'); });"
+                  "pm.test('Starts at 0.00 and Active', () => { pm.expect(j.balance).to.eql(0); pm.expect(j.status).to.eql('Active'); });",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1069,7 +1319,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 403', () => pm.response.to.have.status(403));"
+                  "try {",
+                  "pm.test('Status is 403', () => pm.response.to.have.status(403));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1114,7 +1366,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1147,7 +1401,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 403', () => pm.response.to.have.status(403));"
+                  "try {",
+                  "pm.test('Status is 403', () => pm.response.to.have.status(403));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1180,7 +1436,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1222,9 +1480,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
-                  "pm.test('Number is masked', () => pm.expect(j.accountNumber).to.match(/^\\*{4}-\\*{4}-\\d{4}$/));"
+                  "pm.test('Number is masked', () => pm.expect(j.accountNumber).to.match(/^\\*{4}-\\*{4}-\\d{4}$/));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1263,9 +1523,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
-                  "pm.test('Frozen', () => pm.expect(j.status).to.eql('Frozen'));"
+                  "pm.test('Frozen', () => pm.expect(j.status).to.eql('Frozen'));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1311,7 +1573,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1363,8 +1627,10 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 201', () => pm.response.to.have.status(201));",
-                  "const j = pm.response.json(); pm.collectionVariables.set('billerId', j.billerId);"
+                  "const j = pm.response.json(); pm.collectionVariables.set('billerId', j.billerId);",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1409,7 +1675,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1442,9 +1710,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
-                  "pm.collectionVariables.set('seedBillerId', j.data[0].billerId);"
+                  "pm.collectionVariables.set('seedBillerId', j.data[0].billerId);",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1482,9 +1752,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
-                  "pm.test('Name updated', () => pm.expect(j.billerName).to.eql('Demo Water Company'));"
+                  "pm.test('Name updated', () => pm.expect(j.billerName).to.eql('Demo Water Company'));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1530,7 +1802,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 400', () => pm.response.to.have.status(400));"
+                  "try {",
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1576,7 +1850,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 403', () => pm.response.to.have.status(403));"
+                  "try {",
+                  "pm.test('Status is 403', () => pm.response.to.have.status(403));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1621,7 +1897,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 204', () => pm.response.to.have.status(204));"
+                  "try {",
+                  "pm.test('Status is 204', () => pm.response.to.have.status(204));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1654,7 +1932,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 404', () => pm.response.to.have.status(404));"
+                  "try {",
+                  "pm.test('Status is 404', () => pm.response.to.have.status(404));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1693,8 +1973,10 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 201', () => pm.response.to.have.status(201));",
-                  "const j = pm.response.json(); pm.collectionVariables.set('payeeId', j.payeeId);"
+                  "const j = pm.response.json(); pm.collectionVariables.set('payeeId', j.payeeId);",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             },
@@ -1748,7 +2030,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 409', () => pm.response.to.have.status(409));"
+                  "try {",
+                  "pm.test('Status is 409', () => pm.response.to.have.status(409));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1793,7 +2077,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 403', () => pm.response.to.have.status(403));"
+                  "try {",
+                  "pm.test('Status is 403', () => pm.response.to.have.status(403));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1838,7 +2124,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1871,7 +2159,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1905,9 +2195,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
-                  "pm.test('Renamed', () => pm.expect(j.nickname).to.eql('Renamed payee'));"
+                  "pm.test('Renamed', () => pm.expect(j.nickname).to.eql('Renamed payee'));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -1959,9 +2251,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 201', () => pm.response.to.have.status(201));",
                   "const j = pm.response.json(); pm.collectionVariables.set('txId', j.transactionId);",
-                  "pm.test('Completed with a reference number', () => { pm.expect(j.status).to.eql('Completed'); pm.expect(j.referenceNumber).to.match(/^BNK-\\d{8}-\\d{6}$/); });"
+                  "pm.test('Completed with a reference number', () => { pm.expect(j.status).to.eql('Completed'); pm.expect(j.referenceNumber).to.match(/^BNK-\\d{8}-\\d{6}$/); });",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             },
@@ -2019,9 +2313,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
-                  "pm.test('Same transaction, replay header set', () => { pm.expect(j.transactionId).to.eql(Number(pm.collectionVariables.get('txId'))); pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql('true'); });"
+                  "pm.test('Same transaction, replay header set', () => { pm.expect(j.transactionId).to.eql(Number(pm.collectionVariables.get('txId'))); pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql('true'); });",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -2070,7 +2366,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 409', () => pm.response.to.have.status(409));"
+                  "try {",
+                  "pm.test('Status is 409', () => pm.response.to.have.status(409));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -2119,7 +2417,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 400', () => pm.response.to.have.status(400));"
+                  "try {",
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -2164,7 +2464,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 422', () => pm.response.to.have.status(422));"
+                  "try {",
+                  "pm.test('Status is 422', () => pm.response.to.have.status(422));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             },
@@ -2222,7 +2524,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 403', () => pm.response.to.have.status(403));"
+                  "try {",
+                  "pm.test('Status is 403', () => pm.response.to.have.status(403));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             },
@@ -2280,8 +2584,10 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 201', () => pm.response.to.have.status(201));",
-                  "const j = pm.response.json(); pm.collectionVariables.set('billTxId', j.transactionId);"
+                  "const j = pm.response.json(); pm.collectionVariables.set('billTxId', j.transactionId);",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             },
@@ -2339,7 +2645,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -2372,9 +2680,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
-                  "pm.test('Review fields hidden from the receiver', () => pm.expect(j).to.not.have.property('reviewStatus'));"
+                  "pm.test('Review fields hidden from the receiver', () => pm.expect(j).to.not.have.property('reviewStatus'));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -2407,7 +2717,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -2441,9 +2753,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
-                  "pm.test('Received transfer listed', () => pm.expect(j.data.map(t => t.transactionId)).to.include(Number(pm.collectionVariables.get('txId'))));"
+                  "pm.test('Received transfer listed', () => pm.expect(j.data.map(t => t.transactionId)).to.include(Number(pm.collectionVariables.get('txId'))));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -2477,7 +2791,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -2515,9 +2831,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
-                  "pm.test('Flagged', () => pm.expect(j.reviewStatus).to.eql('Flagged'));"
+                  "pm.test('Flagged', () => pm.expect(j.reviewStatus).to.eql('Flagged'));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -2563,7 +2881,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 403', () => pm.response.to.have.status(403));"
+                  "try {",
+                  "pm.test('Status is 403', () => pm.response.to.have.status(403));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -2609,7 +2929,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -2655,7 +2977,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 403', () => pm.response.to.have.status(403));"
+                  "try {",
+                  "pm.test('Status is 403', () => pm.response.to.have.status(403));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             },
@@ -2713,7 +3037,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -2759,7 +3085,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 204', () => pm.response.to.have.status(204));"
+                  "try {",
+                  "pm.test('Status is 204', () => pm.response.to.have.status(204));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -2798,9 +3126,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
-                  "pm.collectionVariables.set('noteId', j.data[0].notificationId);"
+                  "pm.collectionVariables.set('noteId', j.data[0].notificationId);",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -2840,7 +3170,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -2873,7 +3205,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 403', () => pm.response.to.have.status(403));"
+                  "try {",
+                  "pm.test('Status is 403', () => pm.response.to.have.status(403));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -2907,9 +3241,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "try {",
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
-                  "pm.test('Transfer was audited', () => pm.expect(j.data.length).to.be.above(0));"
+                  "pm.test('Transfer was audited', () => pm.expect(j.data.length).to.be.above(0));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -2951,7 +3287,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 403', () => pm.response.to.have.status(403));"
+                  "try {",
+                  "pm.test('Status is 403', () => pm.response.to.have.status(403));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -2983,7 +3321,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -3011,7 +3351,1288 @@
       ]
     },
     {
-      "name": "8. Logout",
+      "name": "8. Credentials (email change, password change, admin reset)",
+      "description": "Runs on the customer registered in folder 2 (token variable newToken) and ends with a fresh newToken so folder 9 can log out. Needs OTP_ENABLED=false or DEMO_SHOW_CODE=true (the tests read demoCode / demoToken). Email change: password check, code sent to the NEW address. Admin reset: the admin only confirms the customer email; the customer sets the password with the emailed token.",
+      "item": [
+        {
+          "name": "Change email - wrong current password (403)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('changedEmail', 'changed' + Date.now() + '@gmail.com');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 403', () => pm.response.to.have.status(403));",
+                  "pm.test('Says the password is wrong', () => pm.expect(pm.response.json().message).to.include('password'));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{newToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{newUserId}}/email-change",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{newUserId}}",
+                "email-change"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newEmail\": \"{{changedEmail}}\",\n  \"currentPassword\": \"WrongPassword#99\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Change email - not a Gmail address (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{newToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{newUserId}}/email-change",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{newUserId}}",
+                "email-change"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newEmail\": \"someone@example.com\",\n  \"currentPassword\": \"{{newPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Change email - request code (new address)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('emailRequestId', j.requestId); if (j.demoCode) pm.collectionVariables.set('emailCode', j.demoCode);",
+                  "pm.test('Code goes to the NEW address (masked), expiry returned', () => { pm.expect(j.requestId).to.match(/^[a-f0-9]{32}$/); pm.expect(j.sentTo).to.include('***@'); pm.expect(j.expiresInSeconds).to.be.above(0); });",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{newToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{newUserId}}/email-change",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{newUserId}}",
+                "email-change"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newEmail\": \"{{changedEmail}}\",\n  \"currentPassword\": \"{{newPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Change email - second request too soon (429)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 429', () => pm.response.to.have.status(429));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{newToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{newUserId}}/email-change",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{newUserId}}",
+                "email-change"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newEmail\": \"{{changedEmail}}\",\n  \"currentPassword\": \"{{newPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Change email - verify with wrong code (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{newToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{newUserId}}/email-change/verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{newUserId}}",
+                "email-change",
+                "verify"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{emailRequestId}}\",\n  \"code\": \"000000\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Change email - verify code (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json(); pm.collectionVariables.set('regEmail', j.email);",
+                  "pm.test('Email changed, new login required', () => { pm.expect(j.email).to.eql(pm.collectionVariables.get('changedEmail')); pm.expect(j.reloginRequired).to.eql(true); });",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{newToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{newUserId}}/email-change/verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{newUserId}}",
+                "email-change",
+                "verify"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{emailRequestId}}\",\n  \"code\": \"{{emailCode}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Old token rejected after email change (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 401', () => pm.response.to.have.status(401));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{newToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{newUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{newUserId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Login with the NEW email",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "if (j.verificationRequired) { pm.collectionVariables.set('newChallengeId', j.challengeId); if (j.demoCode) pm.collectionVariables.set('newCode', j.demoCode); pm.test('Code step required', () => pm.expect(j.challengeId).to.match(/^[a-f0-9]{32}$/)); }",
+                  "else { pm.collectionVariables.set('newToken', j.accessToken); }",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/sessions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "sessions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{regEmail}}\",\n  \"password\": \"{{newPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Verify login code (new email)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json(); pm.collectionVariables.set('newToken', j.accessToken);",
+                  "pm.test('JWT issued after the code', () => pm.expect(j.accessToken.split('.')).to.have.lengthOf(3));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/sessions/verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "sessions",
+                "verify"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challengeId\": \"{{newChallengeId}}\",\n  \"code\": \"{{newCode}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Change password - wrong current password (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 403', () => pm.response.to.have.status(403));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{newToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{newUserId}}/password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{newUserId}}",
+                "password"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"WrongPassword#99\",\n  \"newPassword\": \"{{changedPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Change password - weak new password (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{newToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{newUserId}}/password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{newUserId}}",
+                "password"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{newPassword}}\",\n  \"newPassword\": \"short\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Change password (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json(); pm.collectionVariables.set('newPassword', pm.collectionVariables.get('changedPassword'));",
+                  "pm.test('Success, new login required', () => pm.expect(j.reloginRequired).to.eql(true));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{newToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{newUserId}}/password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{newUserId}}",
+                "password"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{newPassword}}\",\n  \"newPassword\": \"{{changedPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Old token rejected after password change (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 401', () => pm.response.to.have.status(401));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{newToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{newUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{newUserId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Login with the new password",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "if (j.verificationRequired) { pm.collectionVariables.set('newChallengeId', j.challengeId); if (j.demoCode) pm.collectionVariables.set('newCode', j.demoCode); pm.test('Code step required', () => pm.expect(j.challengeId).to.match(/^[a-f0-9]{32}$/)); }",
+                  "else { pm.collectionVariables.set('newToken', j.accessToken); }",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/sessions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "sessions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{regEmail}}\",\n  \"password\": \"{{newPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Verify login code (new password)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json(); pm.collectionVariables.set('newToken', j.accessToken);",
+                  "pm.test('JWT issued after the code', () => pm.expect(j.accessToken.split('.')).to.have.lengthOf(3));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/sessions/verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "sessions",
+                "verify"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challengeId\": \"{{newChallengeId}}\",\n  \"code\": \"{{newCode}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Admin reset - email does not match (422)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 422', () => pm.response.to.have.status(422));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{newUserId}}/password-reset",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{newUserId}}",
+                "password-reset"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"someone.else@gmail.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Admin reset - unknown user (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 404', () => pm.response.to.have.status(404));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/999999/password-reset",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "999999",
+                "password-reset"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{regEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Admin reset - a Customer cannot (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 403', () => pm.response.to.have.status(403));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{newToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{newUserId}}/password-reset",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{newUserId}}",
+                "password-reset"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{regEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Admin reset - start (email sent to the customer)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json(); if (j.demoToken) pm.collectionVariables.set('resetToken', j.demoToken);",
+                  "pm.test('Admin never receives or sets a password', () => { pm.expect(Object.keys(j).join(' ').toLowerCase()).to.not.include('password'); pm.expect(j.sentTo).to.include('***@'); });",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{newUserId}}/password-reset",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{newUserId}}",
+                "password-reset"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{regEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Admin reset - second request too soon (429)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 429', () => pm.response.to.have.status(429));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{newUserId}}/password-reset",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{newUserId}}",
+                "password-reset"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{regEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Confirm reset - invalid token (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/password-reset/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "password-reset",
+                "confirm"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{badResetToken}}\",\n  \"newPassword\": \"{{resetPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Confirm reset - weak password (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/password-reset/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "password-reset",
+                "confirm"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{resetToken}}\",\n  \"newPassword\": \"short\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Confirm reset - customer sets the password (public, 200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('newPassword', pm.collectionVariables.get('resetPassword'));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/password-reset/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "password-reset",
+                "confirm"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{resetToken}}\",\n  \"newPassword\": \"{{resetPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Confirm reset - token is single use (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/password-reset/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "password-reset",
+                "confirm"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{resetToken}}\",\n  \"newPassword\": \"{{resetPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Old token rejected after reset (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 401', () => pm.response.to.have.status(401));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{newToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{newUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{newUserId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Login after the reset",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "if (j.verificationRequired) { pm.collectionVariables.set('newChallengeId', j.challengeId); if (j.demoCode) pm.collectionVariables.set('newCode', j.demoCode); pm.test('Code step required', () => pm.expect(j.challengeId).to.match(/^[a-f0-9]{32}$/)); }",
+                  "else { pm.collectionVariables.set('newToken', j.accessToken); }",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/sessions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "sessions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{regEmail}}\",\n  \"password\": \"{{newPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Verify login code (after reset)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json(); pm.collectionVariables.set('newToken', j.accessToken);",
+                  "pm.test('JWT issued after the code', () => pm.expect(j.accessToken.split('.')).to.have.lengthOf(3));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/sessions/verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "sessions",
+                "verify"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challengeId\": \"{{newChallengeId}}\",\n  \"code\": \"{{newCode}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Logout",
       "description": "A logged-out token is rejected immediately (token denylist).",
       "item": [
         {
@@ -3022,7 +4643,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 204', () => pm.response.to.have.status(204));"
+                  "try {",
+                  "pm.test('Status is 204', () => pm.response.to.have.status(204));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
@@ -3056,7 +4679,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status is 401', () => pm.response.to.have.status(401));"
+                  "try {",
+                  "pm.test('Status is 401', () => pm.response.to.have.status(401));",
+                  "} catch (e) { pm.test('Script error: ' + e.message, () => { throw e; }); }"
                 ]
               }
             }
