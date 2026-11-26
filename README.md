@@ -26,8 +26,13 @@ Optional front end: plain HTML/CSS/JavaScript in `public/` (customer page and ad
   after the code is confirmed; every route except login and registration is protected; passwords are
   hashed with bcrypt; all input is validated; accounts lock for 15 minutes after 5 failed logins; logout
   invalidates the token immediately.
+- **Email and password changes (verified):** a customer changes their email from the Profile page with their password
+  plus a 6-digit code sent to the *new* address; they can also change their own password. An administrator can start a
+  password reset (after confirming the customer's email) but never sets or sees the password: the customer receives a
+  one-time reset code by email and chooses it themselves. Every change signs the customer out of all devices, is written
+  to the audit log, creates an in-app notification and emails the old address.
 - **Modules:** Users, Accounts, Billers, Payees, Transactions, Notifications, Audit log.
-- **34 REST endpoints** using GET, POST, PUT, PATCH and DELETE with correct status codes (see the table below).
+- **39 REST endpoints** using GET, POST, PUT, PATCH and DELETE with correct status codes (see the table below).
 - **Safe money movement:** a transfer or bill payment runs in one database transaction (debit, credit, record,
   notify, audit). Accounts are row-locked, and an `Idempotency-Key` header makes retries safe (a repeated request
   returns the original result instead of paying twice).
@@ -145,7 +150,7 @@ postman/                  Postman collection
 
 | Table | Purpose | Relationships |
 |---|---|---|
-| User | customers | 1 to many Account, 1 to many Notification |
+| User | customers (`Token_Version` signs out all devices) | 1 to many Account, 1 to many Notification, 1 to many Credential_Request |
 | Admin | staff | 1 to many Transaction (reviewed) |
 | Account | bank accounts and balances | many to 1 User |
 | Biller | companies that can be paid | 1 to many Payee |
@@ -155,6 +160,7 @@ postman/                  Postman collection
 | Audit_Log | append-only record of actions | - |
 | Token_Denylist | logged-out JWTs | - |
 | Login_Challenge | pending two-step logins (hashed code, expiry, attempts) | - |
+| Credential_Request | pending email changes and admin-started password resets (hashed code/token, expiry, single use) | many to 1 User, optional Admin (who started a reset) |
 
 ## Endpoints
 
@@ -169,7 +175,12 @@ All paths start with `/api/v1`. Everything except the public routes (login, veri
 | 3 | POST `/users` | public | Register a customer |
 | 4 | GET `/users` | admin | List customers (paging, sort, filter) |
 | 5 | GET `/users/:userId` | owner, admin | Read a profile |
-| 6 | PATCH `/users/:userId` | owner, admin | Update a profile |
+| 6 | PATCH `/users/:userId` | owner, admin | Update a profile (name, mobile number; not email or password) |
+| 34 | POST `/users/:userId/email-change` | owner | Change email, step 1: new Gmail address + current password; a code is sent to the new address |
+| 35 | POST `/users/:userId/email-change/verify` | owner | Change email, step 2: `requestId` + 6-digit code; the email changes and all sessions end |
+| 36 | PATCH `/users/:userId/password` | owner | Change own password (current + new); all sessions end |
+| 37 | POST `/users/:userId/password-reset` | admin | Start a reset: confirm the customer's `email`; the customer receives a one-time token by email |
+| 38 | POST `/auth/password-reset/confirm` | public | Customer sets a new password with the emailed token (single use, 30 minutes) |
 | 11 | GET `/users/:userId/accounts` | owner, admin | List a user's accounts |
 | 28 | GET `/users/:userId/notifications` | owner, admin | List notifications |
 | 7 | POST `/accounts` | customer | Open an account |
@@ -237,6 +248,8 @@ A code is 6 digits, valid 5 minutes, usable once, and dies after 3 wrong tries (
 - Parameterised queries through TypeORM; sort fields come from a whitelist.
 - Two-step login: emailed one-time code (CSPRNG, hashed at rest, 5-minute expiry, single use, 3 attempts, resend cooldown).
 - Registration and email changes accept only `@gmail.com` addresses (6-30 letters, digits or dots, no `+` aliases); login still accepts older addresses.
+- Email change: password re-check, code sent to the new address (hashed, 10-minute expiry, single use, 3 attempts, 60 s cooldown), notice to the old address. Password reset: admin-started, 256-bit random token stored only as a SHA-256 hash, 30-minute expiry, single use; the admin never learns the password.
+- Changing the email or password raises `user.Token_Version`, so every earlier JWT is rejected at once (no timing window). Wrong current-password guesses count toward the account lockout.
 - Login rate limiting and account lockout; identical error for unknown email and wrong password.
 - Strict security headers and Content-Security-Policy; secrets only in `.env` (ignored by Git).
 
@@ -245,6 +258,7 @@ A code is 6 digits, valid 5 minutes, usable once, and dies after 3 wrong tries (
 - The one-time-code login (#2) is delivered by **email** instead of SMS, with a resend endpoint (#30). The large-transfer
   step-up from the lab design is not part of this build.
 - Added `DELETE /billers/:billerId` (#33), `GET /admin/summary`, and `POST /auth/sessions/resend` (#30).
+- Added verified email change (#34, #35), customer password change (#36) and the admin-started password reset (#37, #38) with the `credential_request` table. Existing databases: run `database/migrations/2026-11-26_email-change-password-reset.sql` (or just restart with `DB_SYNC=true`).
 
 ## Notes
 
