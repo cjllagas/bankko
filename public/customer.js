@@ -93,11 +93,11 @@
     return data;
   }
 
-  function endSession(message) {
+  function endSession(message, good) {
     state.token = null; state.userId = null; state.shell = null;
     ['bkc_token', 'bkc_uid', 'bkc_name'].forEach(store.del);
     document.querySelectorAll('dialog').forEach((d) => d.close());
-    renderLogin(message);
+    renderLogin(message, good);
   }
 
   /* ---------- dialogs ---------- */
@@ -109,14 +109,14 @@
     return dlg;
   }
 
-  // fields: [{ name, label, type: text|select, options:[[v,l]], value, required, maxlength, hint, inputmode }]
+  // fields: [{ name, label, type: text|password|select, options:[[v,l]], value, required, maxlength, hint, inputmode }]
   function formDialog({ title, intro, fields = [], submit = 'Save', onSubmit }) {
     const inputs = {};
     const err = h('div', { class: 'err hidden' });
     const rows = fields.map((f) => {
       const input = f.type === 'select'
         ? h('select', { value: f.value }, f.options.map(([v, l]) => h('option', { value: v }, l)))
-        : h('input', { type: 'text', maxlength: f.maxlength, value: f.value || '', autocomplete: 'off', inputmode: f.inputmode });
+        : h('input', { type: f.type === 'password' ? 'password' : 'text', maxlength: f.maxlength, value: f.value || '', autocomplete: f.type === 'password' ? 'new-password' : 'off', inputmode: f.inputmode });
       inputs[f.name] = input;
       return h('div', null, h('label', null, f.label), input, f.hint ? h('p', { class: 'hint' }, f.hint) : null);
     });
@@ -128,7 +128,7 @@
           show(err, false);
           const values = {};
           for (const f of fields) {
-            values[f.name] = inputs[f.name].value.trim();
+            values[f.name] = f.type === 'password' ? inputs[f.name].value : inputs[f.name].value.trim();   // never trim a password
             if (f.required && !values[f.name]) { err.textContent = `${f.label} is required.`; show(err, true); return; }
           }
           okBtn.disabled = true;
@@ -258,8 +258,40 @@
             } catch (ex) { showErr(ex.detail); btn.disabled = false; }
           },
         }, h('label', null, 'Email address'), email, h('label', null, 'Password'), pass, note, err, btn),
-        h('div', { class: 'links' }, h('span', null, 'New to Bankko?'), h('a', { onclick: () => register() }, 'Create an account')));
+        h('div', { class: 'links' }, h('span', null, 'New to Bankko?'), h('a', { onclick: () => register() }, 'Create an account')),
+        h('div', { class: 'links' }, h('span', null, 'The bank sent you a reset code?'), h('a', { onclick: () => resetStep() }, 'Have a reset code?')));
       email.focus();
+    }
+
+    // Password reset (#38): an administrator started it; the one-time token arrived by email. The customer picks the new password.
+    function resetStep() {
+      clear(panel);
+      const err = h('div', { class: 'err hidden' });
+      const showErr = (m) => { err.textContent = m; show(err, true); };
+      const token = h('input', { type: 'text', maxlength: 64, required: true, autocomplete: 'off', placeholder: 'Reset code from your email', spellcheck: false });
+      const pass = h('input', { type: 'password', maxlength: 200, required: true, autocomplete: 'new-password' });
+      const confirm = h('input', { type: 'password', maxlength: 200, required: true, autocomplete: 'new-password' });
+      const btn = h('button', { type: 'submit', class: 'btn' }, 'Set new password');
+      panel.append(
+        h('h2', null, 'Reset your password'),
+        h('p', { class: 'sub' }, 'Paste the reset code we emailed you and choose a new password.'),
+        h('form', {
+          onsubmit: async (e) => {
+            e.preventDefault(); show(err, false);
+            if (pass.value.length < 12) return showErr('Password must be at least 12 characters.');
+            if (pass.value !== confirm.value) return showErr('The two passwords do not match.');
+            btn.disabled = true;
+            try {
+              await api('POST', '/auth/password-reset/confirm', { token: null, body: { token: token.value.trim(), newPassword: pass.value } });
+              step1('Password updated. Log in with your new password.', true);
+            } catch (ex) { showErr(ex.detail); btn.disabled = false; }
+          },
+        }, h('label', null, 'Reset code'), token,
+        h('label', null, 'New password'), pass,
+        h('p', { class: 'hint' }, 'At least 12 characters, with 3 of: lower case, upper case, numbers, symbols.'),
+        h('label', null, 'Confirm new password'), confirm, err, btn),
+        h('div', { class: 'links' }, h('a', { onclick: () => step1() }, 'Back to log in')));
+      token.focus();
     }
 
     function register() {
@@ -674,6 +706,47 @@
   VIEWS.profile = async (main) => {
     main.append(h('h1', null, 'My profile'), h('p', { class: 'sub' }, 'Your details on file.'));
     const box = h('div', { class: 'box wide' }); main.append(box);
+    // Email change (#34 + #35): password first, then the 6-digit code that was sent to the NEW address.
+    function changeEmail() {
+      formDialog({
+        title: 'Change email', submit: 'Send code',
+        intro: 'We send a 6-digit code to the new Gmail address. Your email changes only after you enter it.',
+        fields: [
+          { name: 'newEmail', label: 'New Gmail address', maxlength: 100, required: true, hint: 'Must be a @gmail.com address.' },
+          { name: 'currentPassword', label: 'Current password', type: 'password', maxlength: 200, required: true },
+        ],
+        onSubmit: async (v) => {
+          const r = await api('POST', `/users/${state.userId}/email-change`, { body: { newEmail: v.newEmail.toLowerCase(), currentPassword: v.currentPassword } });
+          formDialog({
+            title: 'Enter the code', submit: 'Confirm new email',
+            intro: `We sent a 6-digit code to ${r.sentTo}. It expires in ${Math.round(r.expiresInSeconds / 60)} minutes.${r.demoCode ? ` DEMO MODE code: ${r.demoCode}` : ''}`,
+            fields: [{ name: 'code', label: '6-digit code', maxlength: 6, required: true, inputmode: 'numeric' }],
+            onSubmit: async (c) => {
+              await api('POST', `/users/${state.userId}/email-change/verify`, { body: { requestId: r.requestId, code: c.code } });
+              endSession('Email updated. Log in with your new email.', true);
+            },
+          });
+        },
+      });
+    }
+
+    // Password change (#36): current + new password, then log in again.
+    function changePassword() {
+      formDialog({
+        title: 'Change password', submit: 'Change password',
+        fields: [
+          { name: 'currentPassword', label: 'Current password', type: 'password', maxlength: 200, required: true },
+          { name: 'newPassword', label: 'New password', type: 'password', maxlength: 200, required: true, hint: 'At least 12 characters, with 3 of: lower case, upper case, numbers, symbols.' },
+          { name: 'confirm', label: 'Confirm new password', type: 'password', maxlength: 200, required: true },
+        ],
+        onSubmit: async (v) => {
+          if (v.newPassword !== v.confirm) throw new Error('The two passwords do not match.');
+          await api('PATCH', `/users/${state.userId}/password`, { body: { currentPassword: v.currentPassword, newPassword: v.newPassword } });
+          endSession('Password updated. Log in again.', true);
+        },
+      });
+    }
+
     async function load() {
       clear(box).append(h('p', { class: 'empty' }, 'Loading...'));
       try {
@@ -687,7 +760,11 @@
               title: 'Change mobile number', submit: 'Save',
               fields: [{ name: 'phoneNumber', label: 'New mobile number', maxlength: 15, required: true, value: u.phoneNumber, inputmode: 'numeric' }],
               onSubmit: async (v) => { await api('PATCH', `/users/${state.userId}`, { body: { phoneNumber: v.phoneNumber } }); toast('Mobile number updated.'); load(); },
-            }) }, 'Change mobile number')));
+            }) }, 'Change mobile number')),
+          h('div', { class: 'toolbar', style: 'margin-top:16px' }, h('span', { class: 'hint' }, 'Email and password changes sign you out of every device.'),
+            h('span', null,
+              h('button', { class: 'btn sm', style: 'margin-right:8px', onclick: () => changeEmail() }, 'Change email'),
+              h('button', { class: 'btn sm alt', onclick: () => changePassword() }, 'Change password'))));
       } catch (ex) { if (ex.status !== 401) clear(box).append(errBox(ex)); }
     }
     load();

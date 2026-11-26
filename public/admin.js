@@ -478,6 +478,20 @@
     }).catch((ex) => body.replaceWith(h('div', { class: 'err' }, ex.detail)));
   }
 
+  // Password reset (#37): the admin only confirms the customer's email. The customer gets a one-time code by email and chooses the password.
+  function resetPassword(u) {
+    formDialog({
+      title: `Reset password for ${u.firstName} ${u.lastName}`, submit: 'Send reset email',
+      intro: 'The customer receives a one-time reset code by email and chooses a new password. You never see or set the password.',
+      fields: [{ name: 'email', label: "Customer's email", maxlength: 100, required: true, hint: 'Type the email on file to confirm you picked the right customer.' }],
+      onSubmit: async (v) => {
+        const r = await api('POST', `/users/${u.userId}/password-reset`, { body: { email: v.email.toLowerCase() } });
+        toast(`Reset email sent to ${r.sentTo}.`);
+        if (r.demoToken) infoDialog('DEMO MODE', 'Normally only the customer sees this reset code (in their email):', h('p', { class: 'mono', style: 'word-break:break-all' }, r.demoToken));
+      },
+    });
+  }
+
   VIEWS.users = (main) => listView(main, {
     key: 'users', title: 'Users', sub: 'All registered account holders.',
     path: '/users', sort: '-dateRegistered',
@@ -488,7 +502,9 @@
       { label: 'Email', cell: (r) => r.email },
       { label: 'Mobile', cell: (r) => r.phoneNumber },
       { label: 'Registered', cell: (r) => h('span', { class: 'nowrap' }, when(r.dateRegistered)) },
-      { label: '', cls: 'r', cell: (r) => h('button', { class: 'btn sm alt', onclick: () => userAccounts(r) }, 'Accounts') },
+      { label: '', cls: 'r', cell: (r) => h('span', { class: 'nowrap' },
+        h('button', { class: 'btn sm alt', style: 'margin-right:6px', onclick: () => userAccounts(r) }, 'Accounts'),
+        h('button', { class: 'btn sm alt', onclick: () => resetPassword(r) }, 'Reset password')) },
     ],
   });
 
