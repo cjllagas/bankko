@@ -98,6 +98,29 @@ INSERT INTO `biller` VALUES
 (3,'PLDT','Telecom','Active'),
 (4,'Old Cable Co.','Telecom','Inactive');
 /*!40000 ALTER TABLE `biller` ENABLE KEYS */;
+DROP TABLE IF EXISTS `credential_request`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `credential_request` (
+  `Request_ID` varchar(32) NOT NULL,
+  `User_ID` int(11) NOT NULL,
+  `Purpose` enum('EmailChange','PasswordReset') NOT NULL,
+  `New_Email` varchar(100) DEFAULT NULL,
+  `Requested_By_Admin_ID` int(11) DEFAULT NULL,
+  `Code_Hash` varchar(64) NOT NULL,
+  `Attempts` int(11) NOT NULL DEFAULT 0,
+  `Expires_At` datetime NOT NULL,
+  `Last_Sent_At` datetime NOT NULL,
+  `Consumed_At` datetime DEFAULT NULL,
+  `Created_At` datetime NOT NULL,
+  PRIMARY KEY (`Request_ID`),
+  KEY `FK_d18f3ed15e9c464349990f6dae2` (`User_ID`),
+  KEY `FK_5e5c43ee7faeaebb54713082559` (`Requested_By_Admin_ID`),
+  CONSTRAINT `FK_5e5c43ee7faeaebb54713082559` FOREIGN KEY (`Requested_By_Admin_ID`) REFERENCES `admin` (`Admin_ID`) ON DELETE SET NULL ON UPDATE NO ACTION,
+  CONSTRAINT `FK_d18f3ed15e9c464349990f6dae2` FOREIGN KEY (`User_ID`) REFERENCES `user` (`User_ID`) ON DELETE CASCADE ON UPDATE NO ACTION
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
 DROP TABLE IF EXISTS `login_challenge`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8mb4 */;
@@ -221,6 +244,7 @@ CREATE TABLE `user` (
   `Password` varchar(255) NOT NULL,
   `Failed_Attempts` int(11) NOT NULL DEFAULT 0,
   `Locked_Until` datetime DEFAULT NULL,
+  `Token_Version` int(11) NOT NULL DEFAULT 0,
   `Date_Registered` datetime NOT NULL,
   PRIMARY KEY (`User_ID`),
   UNIQUE KEY `IDX_b7eee57d84fb7ed872e660197f` (`Email`),
@@ -230,9 +254,9 @@ CREATE TABLE `user` (
 
 /*!40000 ALTER TABLE `user` DISABLE KEYS */;
 INSERT INTO `user` VALUES
-(1,'Juan','Dela Cruz','juan.delacruz@email.com','09171234567','$2b$10$Yfa3LnV8IQCuZlK0q.9BWOHH33ooLDs8tSHBJgY3pHsxwoSPEydkG',0,NULL,'2026-11-23 12:21:19'),
-(2,'Maria','Santos','maria.santos@email.com','09181234567','$2b$10$Yfa3LnV8IQCuZlK0q.9BWOHH33ooLDs8tSHBJgY3pHsxwoSPEydkG',0,NULL,'2026-11-23 12:21:19'),
-(3,'Pedro','Garcia','pedro.garcia@email.com','09191234567','$2b$10$Yfa3LnV8IQCuZlK0q.9BWOHH33ooLDs8tSHBJgY3pHsxwoSPEydkG',0,NULL,'2026-11-23 12:21:19');
+(1,'Juan','Dela Cruz','juan.delacruz@email.com','09171234567','$2b$10$Yfa3LnV8IQCuZlK0q.9BWOHH33ooLDs8tSHBJgY3pHsxwoSPEydkG',0,NULL,0,'2026-11-23 12:21:19'),
+(2,'Maria','Santos','maria.santos@email.com','09181234567','$2b$10$Yfa3LnV8IQCuZlK0q.9BWOHH33ooLDs8tSHBJgY3pHsxwoSPEydkG',0,NULL,0,'2026-11-23 12:21:19'),
+(3,'Pedro','Garcia','pedro.garcia@email.com','09191234567','$2b$10$Yfa3LnV8IQCuZlK0q.9BWOHH33ooLDs8tSHBJgY3pHsxwoSPEydkG',0,NULL,0,'2026-11-23 12:21:19');
 /*!40000 ALTER TABLE `user` ENABLE KEYS */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
