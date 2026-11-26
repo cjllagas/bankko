@@ -12,6 +12,7 @@ import { PayeesModule } from './payees/payees.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AuditModule } from './audit/audit.module';
+import { CredentialsModule } from './credentials/credentials.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { AuditModule } from './audit/audit.module';
     CoreModule,
     AuthModule,
     UsersModule,
+    CredentialsModule,
     AccountsModule,
     BillersModule,
     PayeesModule,

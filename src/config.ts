@@ -59,6 +59,13 @@ export const config = {
     resendCooldownSeconds: 60,  // minimum gap between two sends
     maxResends: 3,              // resends allowed per login attempt
   },
+  // Email change (customer) and password reset (admin-triggered). Both need the customer to confirm by email.
+  credentials: {
+    emailChangeTtlSeconds: 600,   // the code sent to the new address is valid for 10 minutes
+    emailChangeMaxAttempts: 3,    // wrong guesses allowed per code
+    resendCooldownSeconds: 60,    // minimum gap between two requests for the same customer
+    resetTtlSeconds: 1800,        // a password-reset token is valid for 30 minutes
+  },
   demo: { showCode: demoShowCode },
   // SMTP is optional. Without it (and outside production) codes are printed in the server console instead.
   mail: {

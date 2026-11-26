@@ -12,7 +12,7 @@ export class RegisterUserDto {
   @StrongPassword() password: string;
 }
 
-// PATCH: every field optional. Email is the login identifier and cannot be changed here.
+// PATCH: every field optional. Email and password are NOT changed here: they need the verified flows in the credentials module.
 export class UpdateUserDto {
   @OptString(50) firstName?: string;
   @OptString(50) lastName?: string;
