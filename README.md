@@ -92,7 +92,7 @@ Other scripts: `npm run build`, `npm run start:prod`.
 
 ## Testing with Postman
 
-1. Start the API and load the demo data (`npm run seed`).
+1. Start the API.
 2. In Postman choose *Import* and select `postman/Bankko.postman_collection.json`.
 3. Run the collection (Collection Runner), or send the requests folder by folder.
 
