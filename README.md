@@ -76,22 +76,7 @@ Pick one:
 Always start from an **empty** database (drop any older `bankko` database first). Use one of the two ways above,
 not both on top of each other.
 
-### 5. Load demo data (skip if you imported the SQL file - it already contains the demo data)
-
-```bash
-npm run seed
-```
-
-Demo logins (password for all: `Bankko#Demo2026` - local testing only):
-
-| Role | Email |
-|---|---|
-| Admin | ana.reyes@bankko.example |
-| Customer | juan.delacruz@email.com |
-| Customer | maria.santos@email.com |
-| Customer | pedro.garcia@email.com |
-
-To create your own administrator: `npm run create-admin`.
+### 5. To create your own administrator: `npm run create-admin`.
 
 ### 6. Start the server
 
